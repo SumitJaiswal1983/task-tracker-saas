@@ -44,7 +44,7 @@ function adminOnly(req, res, next) {
 // --- DB Init ---
 async function initDB() {
   await pool.query(`
-    CREATE TABLE IF NOT EXISTS tasks (
+    CREATE TABLE IF NOT EXISTS tt_tasks (
       id SERIAL PRIMARY KEY,
       task_description TEXT NOT NULL,
       stakeholder VARCHAR(255),
@@ -63,24 +63,24 @@ async function initDB() {
       updated_at TIMESTAMP DEFAULT NOW()
     );
 
-    CREATE TABLE IF NOT EXISTS weekly_scores (
+    CREATE TABLE IF NOT EXISTS tt_weekly_scores (
       id SERIAL PRIMARY KEY,
       week_number VARCHAR(50) UNIQUE,
       score_percent DECIMAL(5,2),
       recorded_at TIMESTAMP DEFAULT NOW()
     );
 
-    CREATE TABLE IF NOT EXISTS sections (
+    CREATE TABLE IF NOT EXISTS tt_sections (
       id SERIAL PRIMARY KEY,
       name VARCHAR(100) UNIQUE NOT NULL
     );
 
-    CREATE TABLE IF NOT EXISTS stakeholders (
+    CREATE TABLE IF NOT EXISTS tt_stakeholders (
       id SERIAL PRIMARY KEY,
       name VARCHAR(255) UNIQUE NOT NULL
     );
 
-    CREATE TABLE IF NOT EXISTS users (
+    CREATE TABLE IF NOT EXISTS tt_users (
       id SERIAL PRIMARY KEY,
       name VARCHAR(255) NOT NULL,
       email VARCHAR(255) UNIQUE NOT NULL,
@@ -89,7 +89,7 @@ async function initDB() {
       created_at TIMESTAMP DEFAULT NOW()
     );
 
-    INSERT INTO sections (name) VALUES
+    INSERT INTO tt_sections (name) VALUES
       ('Assembly'), ('Claim'), ('Rotary'), ('Packing'), ('IT'),
       ('Plate Mfg'), ('Purchase'), ('Quality'), ('HR'),
       ('Maintenance'), ('Battery Cutting'), ('Accounts')
@@ -97,14 +97,40 @@ async function initDB() {
   `);
 
   // Create default admin if no users exist
-  const { rows } = await pool.query('SELECT COUNT(*) FROM users');
-  if (parseInt(rows[0].count) === 0) {
+  const { rows: userRows } = await pool.query('SELECT COUNT(*) FROM tt_users');
+  if (parseInt(userRows[0].count) === 0) {
     const hash = await bcrypt.hash('highflow@123', 10);
     await pool.query(
-      `INSERT INTO users (name, email, password, role) VALUES ($1,$2,$3,'admin')`,
+      `INSERT INTO tt_users (name, email, password, role) VALUES ($1,$2,$3,'admin')`,
       ['Sumit Jaiswal', 'sumit@highflow.in', hash]
     );
     console.log('Default admin created: sumit@highflow.in / highflow@123');
+  }
+
+  // Seed tasks from Excel data on first run
+  const { rows: taskRows } = await pool.query('SELECT COUNT(*) FROM tt_tasks');
+  if (parseInt(taskRows[0].count) === 0) {
+    try {
+      const seedPath = path.join(__dirname, 'seeds', 'tasks.json');
+      const seedData = require(seedPath);
+      for (const t of seedData) {
+        await pool.query(
+          `INSERT INTO tt_tasks (task_description, stakeholder, section, create_date, initial_target_date,
+             revised_date_1, revised_date_2, revised_date_3, revised_date_4, revised_date_5,
+             completion_date, remarks, sheet_name)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+          [t.task_description, t.stakeholder, t.section, t.create_date, t.initial_target_date,
+           t.revised_date_1, t.revised_date_2, t.revised_date_3, t.revised_date_4, t.revised_date_5,
+           t.completion_date, t.remarks, t.sheet_name]
+        );
+        if (t.stakeholder) {
+          await pool.query('INSERT INTO tt_stakeholders (name) VALUES ($1) ON CONFLICT (name) DO NOTHING', [t.stakeholder]);
+        }
+      }
+      console.log(`Seeded ${seedData.length} tasks from Excel data`);
+    } catch (e) {
+      console.log('Seed skipped:', e.message);
+    }
   }
 
   console.log('DB initialized');
@@ -134,7 +160,7 @@ app.post('/api/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
     if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
-    const { rows } = await pool.query('SELECT * FROM users WHERE email=$1', [email.toLowerCase()]);
+    const { rows } = await pool.query('SELECT * FROM tt_users WHERE email=$1', [email.toLowerCase()]);
     const user = rows[0];
     if (!user || !(await bcrypt.compare(password, user.password))) {
       return res.status(401).json({ error: 'Invalid email or password' });
@@ -148,7 +174,7 @@ app.post('/api/auth/login', async (req, res) => {
 
 app.get('/api/auth/me', auth, async (req, res) => {
   try {
-    const { rows } = await pool.query('SELECT id,name,email,role,created_at FROM users WHERE id=$1', [req.user.id]);
+    const { rows } = await pool.query('SELECT id,name,email,role,created_at FROM tt_users WHERE id=$1', [req.user.id]);
     res.json(rows[0] || null);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -161,7 +187,7 @@ app.get('/api/auth/me', auth, async (req, res) => {
 
 app.get('/api/users', auth, adminOnly, async (req, res) => {
   try {
-    const { rows } = await pool.query('SELECT id,name,email,role,created_at FROM users ORDER BY created_at ASC');
+    const { rows } = await pool.query('SELECT id,name,email,role,created_at FROM tt_users ORDER BY created_at ASC');
     res.json(rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -174,7 +200,7 @@ app.post('/api/users', auth, adminOnly, async (req, res) => {
     if (!name || !email || !password) return res.status(400).json({ error: 'Name, email, password required' });
     const hash = await bcrypt.hash(password, 10);
     const { rows } = await pool.query(
-      `INSERT INTO users (name, email, password, role) VALUES ($1,$2,$3,$4) RETURNING id,name,email,role,created_at`,
+      `INSERT INTO tt_users (name, email, password, role) VALUES ($1,$2,$3,$4) RETURNING id,name,email,role,created_at`,
       [name, email.toLowerCase(), hash, role || 'viewer']
     );
     res.json(rows[0]);
@@ -190,10 +216,10 @@ app.put('/api/users/:id', auth, adminOnly, async (req, res) => {
     let q, params;
     if (password) {
       const hash = await bcrypt.hash(password, 10);
-      q = `UPDATE users SET name=$1, email=$2, role=$3, password=$4 WHERE id=$5 RETURNING id,name,email,role,created_at`;
+      q = `UPDATE tt_users SET name=$1, email=$2, role=$3, password=$4 WHERE id=$5 RETURNING id,name,email,role,created_at`;
       params = [name, email.toLowerCase(), role, hash, req.params.id];
     } else {
-      q = `UPDATE users SET name=$1, email=$2, role=$3 WHERE id=$4 RETURNING id,name,email,role,created_at`;
+      q = `UPDATE tt_users SET name=$1, email=$2, role=$3 WHERE id=$4 RETURNING id,name,email,role,created_at`;
       params = [name, email.toLowerCase(), role, req.params.id];
     }
     const { rows } = await pool.query(q, params);
@@ -206,7 +232,7 @@ app.put('/api/users/:id', auth, adminOnly, async (req, res) => {
 app.delete('/api/users/:id', auth, adminOnly, async (req, res) => {
   try {
     if (parseInt(req.params.id) === req.user.id) return res.status(400).json({ error: "Can't delete yourself" });
-    await pool.query('DELETE FROM users WHERE id=$1', [req.params.id]);
+    await pool.query('DELETE FROM tt_users WHERE id=$1', [req.params.id]);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -220,7 +246,7 @@ app.delete('/api/users/:id', auth, adminOnly, async (req, res) => {
 app.get('/api/tasks', auth, async (req, res) => {
   try {
     const { sheet_name, section, stakeholder, status } = req.query;
-    let q = 'SELECT * FROM tasks WHERE 1=1';
+    let q = 'SELECT * FROM tt_tasks WHERE 1=1';
     const params = [];
     if (sheet_name) { params.push(sheet_name); q += ` AND sheet_name=$${params.length}`; }
     if (section) { params.push(section); q += ` AND section=$${params.length}`; }
@@ -239,7 +265,7 @@ app.post('/api/tasks', auth, async (req, res) => {
       revised_date_1, revised_date_2, revised_date_3, revised_date_4, revised_date_5,
       completion_date, remarks, sheet_name } = req.body;
     const result = await pool.query(
-      `INSERT INTO tasks (task_description, stakeholder, section, create_date, initial_target_date,
+      `INSERT INTO tt_tasks (task_description, stakeholder, section, create_date, initial_target_date,
          revised_date_1, revised_date_2, revised_date_3, revised_date_4, revised_date_5,
          completion_date, remarks, sheet_name)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
@@ -247,7 +273,7 @@ app.post('/api/tasks', auth, async (req, res) => {
        revised_date_1||null, revised_date_2||null, revised_date_3||null, revised_date_4||null,
        revised_date_5||null, completion_date||null, remarks||null, sheet_name||'Unit 1']
     );
-    if (stakeholder) await pool.query('INSERT INTO stakeholders (name) VALUES ($1) ON CONFLICT (name) DO NOTHING', [stakeholder]);
+    if (stakeholder) await pool.query('INSERT INTO tt_stakeholders (name) VALUES ($1) ON CONFLICT (name) DO NOTHING', [stakeholder]);
     res.json(calcTask(result.rows[0]));
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -258,7 +284,7 @@ app.put('/api/tasks/:id', auth, async (req, res) => {
       revised_date_1, revised_date_2, revised_date_3, revised_date_4, revised_date_5,
       completion_date, remarks, sheet_name } = req.body;
     const result = await pool.query(
-      `UPDATE tasks SET task_description=$1, stakeholder=$2, section=$3, create_date=$4,
+      `UPDATE tt_tasks SET task_description=$1, stakeholder=$2, section=$3, create_date=$4,
          initial_target_date=$5, revised_date_1=$6, revised_date_2=$7, revised_date_3=$8,
          revised_date_4=$9, revised_date_5=$10, completion_date=$11, remarks=$12,
          sheet_name=$13, updated_at=NOW()
@@ -268,14 +294,14 @@ app.put('/api/tasks/:id', auth, async (req, res) => {
        revised_date_5||null, completion_date||null, remarks||null, sheet_name||'Unit 1', req.params.id]
     );
     if (!result.rows[0]) return res.status(404).json({ error: 'Not found' });
-    if (stakeholder) await pool.query('INSERT INTO stakeholders (name) VALUES ($1) ON CONFLICT (name) DO NOTHING', [stakeholder]);
+    if (stakeholder) await pool.query('INSERT INTO tt_stakeholders (name) VALUES ($1) ON CONFLICT (name) DO NOTHING', [stakeholder]);
     res.json(calcTask(result.rows[0]));
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.delete('/api/tasks/:id', auth, async (req, res) => {
   try {
-    await pool.query('DELETE FROM tasks WHERE id=$1', [req.params.id]);
+    await pool.query('DELETE FROM tt_tasks WHERE id=$1', [req.params.id]);
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -287,7 +313,7 @@ app.delete('/api/tasks/:id', auth, async (req, res) => {
 app.get('/api/dashboard', auth, async (req, res) => {
   try {
     const { sheet_name } = req.query;
-    const result = await pool.query(sheet_name ? 'SELECT * FROM tasks WHERE sheet_name=$1' : 'SELECT * FROM tasks', sheet_name ? [sheet_name] : []);
+    const result = await pool.query(sheet_name ? 'SELECT * FROM tt_tasks WHERE sheet_name=$1' : 'SELECT * FROM tt_tasks', sheet_name ? [sheet_name] : []);
     const tasks = result.rows.map(calcTask);
     const total = tasks.length;
     const completed = tasks.filter(t => t.achievement_status === 'Completed').length;
@@ -326,21 +352,21 @@ app.get('/api/dashboard', auth, async (req, res) => {
 
 app.get('/api/sections', auth, async (req, res) => {
   try {
-    const { rows } = await pool.query('SELECT name FROM sections ORDER BY name');
+    const { rows } = await pool.query('SELECT name FROM tt_sections ORDER BY name');
     res.json(rows.map(r => r.name));
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.get('/api/stakeholders', auth, async (req, res) => {
   try {
-    const { rows } = await pool.query('SELECT name FROM stakeholders ORDER BY name');
+    const { rows } = await pool.query('SELECT name FROM tt_stakeholders ORDER BY name');
     res.json(rows.map(r => r.name));
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.get('/api/weekly-scores', auth, async (req, res) => {
   try {
-    const { rows } = await pool.query('SELECT * FROM weekly_scores ORDER BY id ASC');
+    const { rows } = await pool.query('SELECT * FROM tt_weekly_scores ORDER BY id ASC');
     res.json(rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -349,7 +375,7 @@ app.post('/api/weekly-scores', auth, async (req, res) => {
   try {
     const { week_number, score_percent } = req.body;
     const { rows } = await pool.query(
-      `INSERT INTO weekly_scores (week_number, score_percent) VALUES ($1,$2)
+      `INSERT INTO tt_weekly_scores (week_number, score_percent) VALUES ($1,$2)
        ON CONFLICT (week_number) DO UPDATE SET score_percent=$2 RETURNING *`,
       [week_number, score_percent]
     );
