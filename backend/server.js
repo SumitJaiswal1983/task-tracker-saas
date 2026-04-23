@@ -12,9 +12,10 @@ app.use(express.json());
 
 const JWT_SECRET = process.env.JWT_SECRET || 'highflow-task-tracker-secret-2026';
 
+const isExternalDB = process.env.DATABASE_URL && process.env.DATABASE_URL.includes('.render.com');
 const pool = new Pool(
   process.env.DATABASE_URL
-    ? { connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } }
+    ? { connectionString: process.env.DATABASE_URL, ssl: isExternalDB ? { rejectUnauthorized: false } : false }
     : {
         host: process.env.DB_HOST || 'localhost',
         port: process.env.DB_PORT || 5432,
