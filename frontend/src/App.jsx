@@ -158,7 +158,7 @@ export default function App() {
 
       <main className="page">
         {isSuperAdmin && <SuperAdmin />}
-        {!isSuperAdmin && tab === 'dashboard' && <Dashboard sheetName={sheet} />}
+        {!isSuperAdmin && tab === 'dashboard' && <Dashboard sheetName={sheet} currentUser={user} />}
         {!isSuperAdmin && tab === 'tasks' && <TaskList sheetName={sheet} currentUser={user} />}
         {!isSuperAdmin && tab === 'people' && user.role === 'admin' && <PeopleAndSections />}
         {!isSuperAdmin && tab === 'users' && user.role === 'admin' && <Users currentUser={user} />}

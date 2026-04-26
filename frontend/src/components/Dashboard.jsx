@@ -1,7 +1,126 @@
 import { useState, useEffect } from 'react';
 import { api } from '../api';
 
-export default function Dashboard({ sheetName }) {
+function WhatsAppReminders() {
+  const [status, setStatus] = useState(null);
+  const [sending, setSending] = useState(false);
+  const [result, setResult] = useState(null);
+  const [testPhone, setTestPhone] = useState('');
+  const [testSending, setTestSending] = useState(false);
+  const [testResult, setTestResult] = useState(null);
+  const [showTest, setShowTest] = useState(false);
+
+  useEffect(() => {
+    api.getNotificationStatus().then(setStatus).catch(console.error);
+  }, []);
+
+  async function sendReminders() {
+    setSending(true);
+    setResult(null);
+    try {
+      const r = await api.sendOverdueReminders();
+      setResult(r);
+      const s = await api.getNotificationStatus();
+      setStatus(s);
+    } catch (e) {
+      setResult({ error: e.message });
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function sendTest(e) {
+    e.preventDefault();
+    if (!testPhone) return;
+    setTestSending(true);
+    setTestResult(null);
+    try {
+      await api.testWhatsApp(testPhone);
+      setTestResult('Test message sent! Check your WhatsApp.');
+    } catch (e) {
+      setTestResult('Failed: ' + e.message);
+    } finally {
+      setTestSending(false);
+    }
+  }
+
+  return (
+    <div className="card" style={{ marginBottom: 20 }}>
+      <div className="card-header">
+        <h3>WhatsApp Reminders</h3>
+        {status?.configured
+          ? <span style={{ fontSize: 11, background: '#e8f5e9', color: '#2e7d32', padding: '2px 8px', borderRadius: 10, fontWeight: 600 }}>Active</span>
+          : <span style={{ fontSize: 11, background: '#fff8e1', color: '#f57f17', padding: '2px 8px', borderRadius: 10, fontWeight: 600 }}>Not Configured</span>
+        }
+      </div>
+      <div style={{ padding: '16px 20px' }}>
+        {status === null ? (
+          <div style={{ color: '#bbb', fontSize: 13 }}>Checking...</div>
+        ) : !status.configured ? (
+          <div style={{ background: '#fff8e1', border: '1px solid #ffe082', borderRadius: 8, padding: '12px 16px', fontSize: 13, color: '#795548', lineHeight: 1.6 }}>
+            <strong>WhatsApp not configured.</strong><br />
+            To enable daily overdue reminders, add these in Render → Environment:<br />
+            <code style={{ display: 'block', marginTop: 8, background: '#f5f5f5', padding: '6px 10px', borderRadius: 6, fontSize: 12 }}>
+              WHATSAPP_PHONE_ID = (your Meta phone number ID)<br />
+              WHATSAPP_ACCESS_TOKEN = (your Meta access token)
+            </code>
+          </div>
+        ) : (
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 12 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, color: '#333' }}>
+                  <strong>{status.overdueCount}</strong> stakeholder{status.overdueCount !== 1 ? 's' : ''} with overdue tasks and a WhatsApp number.
+                </div>
+                <div style={{ fontSize: 12, color: '#888', marginTop: 3 }}>Auto-sends daily at 9:00 AM IST.</div>
+              </div>
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={sendReminders}
+                disabled={sending || status.overdueCount === 0}
+                style={{ whiteSpace: 'nowrap' }}
+              >
+                {sending ? 'Sending...' : 'Send Now'}
+              </button>
+            </div>
+            {result && (
+              <div style={{ fontSize: 13, color: result.error ? '#f44336' : '#2e7d32', marginBottom: 10 }}>
+                {result.error ? `Error: ${result.error}` : `Sent ${result.sent} reminder${result.sent !== 1 ? 's' : ''} successfully.`}
+              </div>
+            )}
+            <button
+              style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: 12, padding: 0 }}
+              onClick={() => setShowTest(t => !t)}
+            >
+              {showTest ? 'Hide test' : 'Send test message'}
+            </button>
+            {showTest && (
+              <form onSubmit={sendTest} style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                <input
+                  className="filter-input"
+                  placeholder="919876543210"
+                  value={testPhone}
+                  onChange={e => setTestPhone(e.target.value)}
+                  style={{ width: 180 }}
+                />
+                <button type="submit" className="btn btn-ghost btn-sm" disabled={testSending}>
+                  {testSending ? '...' : 'Send Test'}
+                </button>
+              </form>
+            )}
+            {testResult && (
+              <div style={{ fontSize: 12, color: testResult.startsWith('Failed') ? '#f44336' : '#2e7d32', marginTop: 6 }}>
+                {testResult}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default function Dashboard({ sheetName, currentUser }) {
   const [stats, setStats] = useState(null);
   const [weeklyScores, setWeeklyScores] = useState([]);
   const [newWeek, setNewWeek] = useState({ week_number: '', score_percent: '' });
@@ -164,6 +283,9 @@ export default function Dashboard({ sheetName }) {
           </div>
         </div>
       </div>
+
+      {/* WhatsApp Reminders — admin only */}
+      {currentUser?.role === 'admin' && <WhatsAppReminders />}
 
       {/* Weekly Score */}
       <div className="card">

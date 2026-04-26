@@ -7,6 +7,7 @@ const jwt = require('jsonwebtoken');
 const { Pool } = require('pg');
 const crypto = require('crypto');
 const Razorpay = require('razorpay');
+const cron = require('node-cron');
 
 const app = express();
 
@@ -779,6 +780,139 @@ app.post('/api/payment/webhook', async (req, res) => {
 });
 
 // ========================
+// WHATSAPP NOTIFICATIONS
+// ========================
+
+async function sendWhatsApp(to, templateName, params) {
+  const phoneId = process.env.WHATSAPP_PHONE_ID;
+  const token = process.env.WHATSAPP_ACCESS_TOKEN;
+  if (!phoneId || !token) return false;
+
+  const number = String(to).replace(/\D/g, '');
+  if (number.length < 10) return false;
+
+  try {
+    const res = await fetch(`https://graph.facebook.com/v19.0/${phoneId}/messages`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        to: number,
+        type: 'template',
+        template: {
+          name: templateName,
+          language: { code: 'en' },
+          components: [{ type: 'body', parameters: params.map(p => ({ type: 'text', text: String(p) })) }],
+        },
+      }),
+    });
+    if (!res.ok) { const e = await res.json(); console.error('WA error:', JSON.stringify(e)); }
+    return res.ok;
+  } catch (err) {
+    console.error('WhatsApp fetch error:', err.message);
+    return false;
+  }
+}
+
+async function runOverdueReminders(companyId) {
+  const companiesResult = companyId
+    ? await pool.query('SELECT id, name FROM tt_companies WHERE id=$1', [companyId])
+    : await pool.query(`
+        SELECT id, name FROM tt_companies WHERE
+        (is_paid = true AND paid_until > NOW()) OR
+        (trial_start_date > NOW() - INTERVAL '30 days')
+      `);
+
+  let totalSent = 0;
+  for (const company of companiesResult.rows) {
+    const { rows: overdueRows } = await pool.query(`
+      SELECT stakeholder, COUNT(*) as count
+      FROM tt_tasks
+      WHERE company_id = $1
+        AND completion_date IS NULL
+        AND COALESCE(revised_date_5, revised_date_4, revised_date_3, revised_date_2, revised_date_1, initial_target_date) < CURRENT_DATE
+      GROUP BY stakeholder
+      HAVING stakeholder IS NOT NULL
+    `, [company.id]);
+
+    for (const row of overdueRows) {
+      const { rows: sh } = await pool.query(
+        'SELECT whatsapp_number FROM tt_stakeholders WHERE company_id=$1 AND name=$2',
+        [company.id, row.stakeholder]
+      );
+      if (sh[0]?.whatsapp_number) {
+        const ok = await sendWhatsApp(sh[0].whatsapp_number, 'task_overdue_reminder', [row.stakeholder, company.name, row.count]);
+        if (ok) totalSent++;
+      }
+    }
+  }
+  return totalSent;
+}
+
+// Notification status for current company
+app.get('/api/notifications/status', auth, checkTrial, async (req, res) => {
+  try {
+    const configured = !!(process.env.WHATSAPP_PHONE_ID && process.env.WHATSAPP_ACCESS_TOKEN);
+    const { rows } = await pool.query(`
+      SELECT s.name, COUNT(t.id) as task_count
+      FROM tt_stakeholders s
+      LEFT JOIN tt_tasks t ON t.company_id = s.company_id AND t.stakeholder = s.name
+        AND t.completion_date IS NULL
+        AND COALESCE(t.revised_date_5, t.revised_date_4, t.revised_date_3, t.revised_date_2, t.revised_date_1, t.initial_target_date) < CURRENT_DATE
+      WHERE s.company_id = $1 AND s.whatsapp_number IS NOT NULL
+      GROUP BY s.id, s.name
+      HAVING COUNT(t.id) > 0
+    `, [req.user.company_id]);
+    res.json({ configured, overdueCount: rows.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Admin manually sends overdue reminders
+app.post('/api/notifications/send-overdue', auth, adminOnly, checkTrial, async (req, res) => {
+  try {
+    if (!process.env.WHATSAPP_PHONE_ID || !process.env.WHATSAPP_ACCESS_TOKEN)
+      return res.status(400).json({ error: 'WhatsApp not configured. Add WHATSAPP_PHONE_ID and WHATSAPP_ACCESS_TOKEN in environment.' });
+    const sent = await runOverdueReminders(req.user.company_id);
+    res.json({ success: true, sent });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Send a test WhatsApp message
+app.post('/api/notifications/test', auth, adminOnly, checkTrial, async (req, res) => {
+  try {
+    const { phone } = req.body;
+    if (!phone) return res.status(400).json({ error: 'Phone number required' });
+    const { rows } = await pool.query('SELECT name FROM tt_companies WHERE id=$1', [req.user.company_id]);
+    const companyName = rows[0]?.name || 'Your Company';
+    const ok = await sendWhatsApp(phone, 'task_overdue_reminder', ['Test User', companyName, '3']);
+    if (ok) res.json({ success: true });
+    else res.status(500).json({ error: 'Message failed. Check phone number and WhatsApp config.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// External cron endpoint — call from cron-job.org daily
+app.post('/api/notifications/daily-cron', async (req, res) => {
+  const secret = req.query.secret || req.body?.secret;
+  if (!secret || secret !== process.env.CRON_SECRET)
+    return res.status(401).json({ error: 'Unauthorized' });
+  try {
+    const sent = await runOverdueReminders(null);
+    res.json({ success: true, sent });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ========================
 // SERVE FRONTEND (prod)
 // ========================
 
@@ -791,5 +925,12 @@ if (process.env.NODE_ENV === 'production') {
 
 const PORT = process.env.PORT || 5004;
 initDB()
-  .then(() => app.listen(PORT, () => console.log(`Server running on port ${PORT}`)))
+  .then(() => {
+    app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+    // Daily 9:00 AM IST = 3:30 AM UTC
+    cron.schedule('30 3 * * *', () => {
+      console.log('Running daily overdue reminders...');
+      runOverdueReminders(null).then(n => console.log(`Reminders sent: ${n}`)).catch(console.error);
+    });
+  })
   .catch(err => { console.error('DB init failed:', err); process.exit(1); });

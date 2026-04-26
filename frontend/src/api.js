@@ -72,4 +72,8 @@ export const api = {
 
   createPaymentOrder: (plan) => req('/payment/create-order', { method: 'POST', body: JSON.stringify({ plan }) }),
   verifyPayment: (data) => req('/payment/verify', { method: 'POST', body: JSON.stringify(data) }),
+
+  getNotificationStatus: () => req('/notifications/status'),
+  sendOverdueReminders: () => req('/notifications/send-overdue', { method: 'POST' }),
+  testWhatsApp: (phone) => req('/notifications/test', { method: 'POST', body: JSON.stringify({ phone }) }),
 };
