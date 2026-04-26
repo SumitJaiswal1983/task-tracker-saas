@@ -1,4 +1,4 @@
-const BASE = import.meta.env.PROD ? '/api' : 'http://localhost:5003/api';
+const BASE = import.meta.env.PROD ? '/api' : 'http://localhost:5004/api';
 
 function getToken() {
   return localStorage.getItem('tt_token');
@@ -14,9 +14,12 @@ async function req(path, options = {}) {
     ...options,
   });
   if (res.status === 401) {
-    localStorage.removeItem('tt_token');
-    localStorage.removeItem('tt_user');
+    localStorage.clear();
     window.location.reload();
+    return;
+  }
+  if (res.status === 402) {
+    window.dispatchEvent(new CustomEvent('trial-expired'));
     return;
   }
   if (!res.ok) {
@@ -29,7 +32,12 @@ async function req(path, options = {}) {
 export const api = {
   login: (email, password) =>
     req('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
+  signup: (data) =>
+    req('/auth/signup', { method: 'POST', body: JSON.stringify(data) }),
   me: () => req('/auth/me'),
+
+  getCompanies: () => req('/admin/companies'),
+  updateCompany: (id, data) => req(`/admin/companies/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
 
   getUsers: () => req('/users'),
   createUser: data => req('/users', { method: 'POST', body: JSON.stringify(data) }),
@@ -61,6 +69,4 @@ export const api = {
   deletePerson: id => req(`/stakeholders/${id}`, { method: 'DELETE' }),
   getWeeklyScores: () => req('/weekly-scores'),
   saveWeeklyScore: data => req('/weekly-scores', { method: 'POST', body: JSON.stringify(data) }),
-
-  sendWhatsAppNow: () => req('/whatsapp/send-now', { method: 'POST' }),
 };

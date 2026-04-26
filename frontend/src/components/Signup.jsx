@@ -1,23 +1,26 @@
 import { useState } from 'react';
 import { api } from '../api';
 
-export default function Login({ onLogin, onSignup }) {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+export default function Signup({ onSignup, onBack }) {
+  const [form, setForm] = useState({ company_name: '', name: '', email: '', password: '' });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  function set(field) {
+    return e => setForm(f => ({ ...f, [field]: e.target.value }));
+  }
 
   async function handleSubmit(e) {
     e.preventDefault();
     setError('');
     setLoading(true);
     try {
-      const data = await api.login(email, password);
+      const data = await api.signup(form);
       if (!data) return;
       localStorage.setItem('tt_token', data.token);
       localStorage.setItem('tt_user', JSON.stringify(data.user));
-      if (data.company) localStorage.setItem('tt_company', JSON.stringify(data.company));
-      onLogin(data.user, data.company);
+      localStorage.setItem('tt_company', JSON.stringify(data.company));
+      onSignup(data.user, data.company);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -39,21 +42,21 @@ export default function Login({ onLogin, onSignup }) {
         borderRadius: 16,
         padding: '40px 36px',
         width: '100%',
-        maxWidth: 400,
+        maxWidth: 420,
         boxShadow: '0 25px 60px rgba(0,0,0,0.4)',
       }}>
-        <div style={{ textAlign: 'center', marginBottom: 32 }}>
+        <div style={{ textAlign: 'center', marginBottom: 28 }}>
           <div style={{
             width: 48, height: 48, background: '#1a237e', borderRadius: 12,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            margin: '0 auto 12px', fontSize: 22, color: 'white', fontWeight: 700,
+            margin: '0 auto 12px', fontSize: 22,
           }}>
             T
           </div>
           <h2 style={{ fontSize: 20, fontWeight: 700, color: '#1a1a2e', marginBottom: 4 }}>
-            Task Delegation Tracker
+            Start Free Trial
           </h2>
-          <p style={{ color: '#888', fontSize: 13 }}>Sign in to your account</p>
+          <p style={{ color: '#888', fontSize: 13 }}>30 days free. No credit card needed.</p>
         </div>
 
         <form onSubmit={handleSubmit}>
@@ -66,16 +69,40 @@ export default function Login({ onLogin, onSignup }) {
             </div>
           )}
 
-          <div className="form-group" style={{ marginBottom: 16 }}>
-            <label className="form-label">Email</label>
+          <div className="form-group" style={{ marginBottom: 14 }}>
+            <label className="form-label">Company / Organisation Name</label>
+            <input
+              type="text"
+              className="form-control"
+              value={form.company_name}
+              onChange={set('company_name')}
+              placeholder="Highflow Industries"
+              required
+              autoFocus
+            />
+          </div>
+
+          <div className="form-group" style={{ marginBottom: 14 }}>
+            <label className="form-label">Your Name</label>
+            <input
+              type="text"
+              className="form-control"
+              value={form.name}
+              onChange={set('name')}
+              placeholder="Sumit Jaiswal"
+              required
+            />
+          </div>
+
+          <div className="form-group" style={{ marginBottom: 14 }}>
+            <label className="form-label">Work Email</label>
             <input
               type="email"
               className="form-control"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
+              value={form.email}
+              onChange={set('email')}
               placeholder="you@company.com"
               required
-              autoFocus
             />
           </div>
 
@@ -84,9 +111,9 @@ export default function Login({ onLogin, onSignup }) {
             <input
               type="password"
               className="form-control"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              placeholder="••••••••"
+              value={form.password}
+              onChange={set('password')}
+              placeholder="Min. 6 characters"
               required
             />
           </div>
@@ -97,24 +124,19 @@ export default function Login({ onLogin, onSignup }) {
             disabled={loading}
             style={{ width: '100%', justifyContent: 'center', padding: '11px', fontSize: 14 }}
           >
-            {loading ? 'Signing in...' : 'Sign In'}
+            {loading ? 'Creating account...' : 'Start Free Trial'}
           </button>
         </form>
 
-        <div style={{ textAlign: 'center', marginTop: 20 }}>
-          <p style={{ fontSize: 13, color: '#666', marginBottom: 0 }}>
-            Don't have an account?{' '}
-            <button
-              onClick={onSignup}
-              style={{
-                background: 'none', border: 'none', color: '#1a237e',
-                cursor: 'pointer', fontWeight: 600, fontSize: 13,
-              }}
-            >
-              Start 30-day free trial
-            </button>
-          </p>
-        </div>
+        <p style={{ textAlign: 'center', marginTop: 18, fontSize: 13, color: '#666' }}>
+          Already have an account?{' '}
+          <button
+            onClick={onBack}
+            style={{ background: 'none', border: 'none', color: '#1a237e', cursor: 'pointer', fontWeight: 600, fontSize: 13 }}
+          >
+            Sign in
+          </button>
+        </p>
       </div>
     </div>
   );

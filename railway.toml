@@ -3,6 +3,6 @@ buildCommand = "npm run build"
 
 [deploy]
 startCommand = "NODE_ENV=production node backend/server.js"
-healthcheckPath = "/api/sections"
+healthcheckPath = "/api/auth/me"
 restartPolicyType = "on_failure"
 region = "us-west1"
