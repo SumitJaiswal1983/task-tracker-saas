@@ -69,4 +69,7 @@ export const api = {
   deletePerson: id => req(`/stakeholders/${id}`, { method: 'DELETE' }),
   getWeeklyScores: () => req('/weekly-scores'),
   saveWeeklyScore: data => req('/weekly-scores', { method: 'POST', body: JSON.stringify(data) }),
+
+  createPaymentOrder: (plan) => req('/payment/create-order', { method: 'POST', body: JSON.stringify({ plan }) }),
+  verifyPayment: (data) => req('/payment/verify', { method: 'POST', body: JSON.stringify(data) }),
 };

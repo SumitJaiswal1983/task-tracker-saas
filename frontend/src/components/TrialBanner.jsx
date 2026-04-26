@@ -1,5 +1,5 @@
 export default function TrialBanner({ company }) {
-  if (!company || company.is_paid || company.is_expired) return null;
+  if (!company || company.subscription_active || company.is_expired) return null;
 
   const days = company.days_remaining;
   const urgent = days <= 5;
@@ -12,15 +12,12 @@ export default function TrialBanner({ company }) {
       padding: '7px 16px',
       fontSize: 13,
       fontWeight: 500,
-      letterSpacing: 0.2,
     }}>
       {days === 0
         ? 'Your trial expires today.'
         : `Free trial: ${days} day${days === 1 ? '' : 's'} remaining.`}
       {' '}
-      <span style={{ opacity: 0.85 }}>
-        Contact <strong>sumit@highflow.in</strong> to upgrade — ₹799/month.
-      </span>
+      <span style={{ opacity: 0.85 }}>Upgrade from ₹799/month to continue.</span>
     </div>
   );
 }

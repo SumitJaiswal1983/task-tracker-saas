@@ -5,14 +5,29 @@ const path = require('path');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { Pool } = require('pg');
+const crypto = require('crypto');
+const Razorpay = require('razorpay');
 
 const app = express();
+
+// Raw body needed for Razorpay webhook signature verification
+app.use('/api/payment/webhook', express.raw({ type: 'application/json' }));
 app.use(cors());
 app.use(express.json());
 
 const JWT_SECRET = process.env.JWT_SECRET || 'taskflow-saas-secret-2026';
 const SUPERADMIN_EMAIL = process.env.SUPERADMIN_EMAIL || 'sumit@highflow.in';
 const SUPERADMIN_PASSWORD = process.env.SUPERADMIN_PASSWORD || 'highflow@123';
+
+const razorpay = new Razorpay({
+  key_id: process.env.RAZORPAY_KEY_ID || '',
+  key_secret: process.env.RAZORPAY_KEY_SECRET || '',
+});
+
+const PLANS = {
+  monthly: { amount: 79900, label: '₹799/month', days: 30 },
+  yearly:  { amount: 699900, label: '₹6,999/year', days: 365 },
+};
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -47,19 +62,26 @@ function superAdminOnly(req, res, next) {
 }
 
 async function checkTrial(req, res, next) {
-  // superadmin bypasses trial
   if (req.user.role === 'superadmin') return next();
 
   const { rows } = await pool.query('SELECT * FROM tt_companies WHERE id=$1', [req.user.company_id]);
   const company = rows[0];
   if (!company) return res.status(403).json({ error: 'Company not found' });
 
-  if (!company.is_paid) {
-    const daysSince = Math.floor((Date.now() - new Date(company.trial_start_date)) / (1000 * 60 * 60 * 24));
-    if (daysSince >= 30) {
-      return res.status(402).json({ error: 'Trial expired', trial_expired: true, days_used: daysSince });
-    }
+  const now = Date.now();
+
+  // Paid subscription active
+  if (company.is_paid && company.paid_until && new Date(company.paid_until) > now) {
+    req.company = company;
+    return next();
   }
+
+  // Trial check
+  const daysSince = Math.floor((now - new Date(company.trial_start_date)) / (1000 * 60 * 60 * 24));
+  if (daysSince >= 30) {
+    return res.status(402).json({ error: 'Trial expired', trial_expired: true });
+  }
+
   req.company = company;
   next();
 }
@@ -77,9 +99,11 @@ async function initDB() {
       trial_start_date TIMESTAMP DEFAULT NOW(),
       is_paid BOOLEAN DEFAULT FALSE,
       plan VARCHAR(50) DEFAULT 'trial',
+      paid_until TIMESTAMP,
       razorpay_payment_id VARCHAR(255),
       created_at TIMESTAMP DEFAULT NOW()
     );
+    ALTER TABLE tt_companies ADD COLUMN IF NOT EXISTS paid_until TIMESTAMP;
 
     CREATE TABLE IF NOT EXISTS tt_users (
       id SERIAL PRIMARY KEY,
@@ -172,14 +196,22 @@ function calcTask(task) {
 
 function trialInfo(company) {
   if (!company) return null;
-  const daysSince = Math.floor((Date.now() - new Date(company.trial_start_date)) / (1000 * 60 * 60 * 24));
-  const days_remaining = Math.max(0, 30 - daysSince);
-  const is_expired = !company.is_paid && daysSince >= 30;
+  const now = Date.now();
+  const daysSince = Math.floor((now - new Date(company.trial_start_date)) / (1000 * 60 * 60 * 24));
+
+  const subscriptionActive = company.is_paid && company.paid_until && new Date(company.paid_until) > now;
+  const days_remaining = subscriptionActive
+    ? Math.ceil((new Date(company.paid_until) - now) / (1000 * 60 * 60 * 24))
+    : Math.max(0, 30 - daysSince);
+  const is_expired = !subscriptionActive && daysSince >= 30;
+
   return {
     company_name: company.name,
     is_paid: company.is_paid,
+    subscription_active: subscriptionActive,
     plan: company.plan,
     trial_start_date: company.trial_start_date,
+    paid_until: company.paid_until,
     days_remaining,
     is_expired,
   };
@@ -649,6 +681,98 @@ app.post('/api/weekly-scores', auth, checkTrial, async (req, res) => {
       [req.user.company_id, week_number, score_percent]
     );
     res.json(rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ========================
+// PAYMENT ROUTES
+// ========================
+
+// Create Razorpay order
+app.post('/api/payment/create-order', auth, async (req, res) => {
+  try {
+    if (req.user.role === 'superadmin') return res.status(400).json({ error: 'Superadmin cannot purchase' });
+    const { plan = 'monthly' } = req.body;
+    const planConfig = PLANS[plan];
+    if (!planConfig) return res.status(400).json({ error: 'Invalid plan' });
+
+    const order = await razorpay.orders.create({
+      amount: planConfig.amount,
+      currency: 'INR',
+      receipt: `co_${req.user.company_id}_${Date.now()}`,
+      notes: { company_id: req.user.company_id, plan },
+    });
+
+    res.json({
+      order_id: order.id,
+      amount: order.amount,
+      currency: order.currency,
+      key_id: process.env.RAZORPAY_KEY_ID,
+      plan_label: planConfig.label,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Verify payment after checkout
+app.post('/api/payment/verify', auth, async (req, res) => {
+  try {
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, plan = 'monthly' } = req.body;
+
+    // Verify signature
+    const body = razorpay_order_id + '|' + razorpay_payment_id;
+    const expectedSignature = crypto
+      .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
+      .update(body)
+      .digest('hex');
+
+    if (expectedSignature !== razorpay_signature) {
+      return res.status(400).json({ error: 'Invalid payment signature' });
+    }
+
+    const planConfig = PLANS[plan] || PLANS.monthly;
+    const paid_until = new Date(Date.now() + planConfig.days * 24 * 60 * 60 * 1000);
+
+    const { rows } = await pool.query(
+      `UPDATE tt_companies SET is_paid=true, plan=$1, paid_until=$2, razorpay_payment_id=$3
+       WHERE id=$4 RETURNING *`,
+      [plan, paid_until, razorpay_payment_id, req.user.company_id]
+    );
+
+    res.json({ success: true, company: trialInfo(rows[0]) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Razorpay webhook (for auto-renewal tracking)
+app.post('/api/payment/webhook', async (req, res) => {
+  try {
+    const signature = req.headers['x-razorpay-signature'];
+    const body = req.body;
+    const expectedSignature = crypto
+      .createHmac('sha256', process.env.RAZORPAY_WEBHOOK_SECRET || '')
+      .update(body)
+      .digest('hex');
+
+    if (signature !== expectedSignature) return res.status(400).json({ error: 'Invalid signature' });
+
+    const event = JSON.parse(body);
+    if (event.event === 'payment.captured') {
+      const notes = event.payload.payment.entity.notes;
+      if (notes?.company_id && notes?.plan) {
+        const planConfig = PLANS[notes.plan] || PLANS.monthly;
+        const paid_until = new Date(Date.now() + planConfig.days * 24 * 60 * 60 * 1000);
+        await pool.query(
+          'UPDATE tt_companies SET is_paid=true, plan=$1, paid_until=$2 WHERE id=$3',
+          [notes.plan, paid_until, notes.company_id]
+        );
+      }
+    }
+    res.json({ received: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

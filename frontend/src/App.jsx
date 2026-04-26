@@ -64,7 +64,14 @@ export default function App() {
 
   // Trial expired (non-superadmin)
   if (user.role !== 'superadmin' && company?.is_expired) {
-    return <Paywall company={company} onLogout={handleLogout} />;
+    return (
+      <Paywall
+        company={company}
+        user={user}
+        onPaymentSuccess={(updatedCompany) => setCompany(updatedCompany)}
+        onLogout={handleLogout}
+      />
+    );
   }
 
   const isSuperAdmin = user.role === 'superadmin';
