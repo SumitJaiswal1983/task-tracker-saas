@@ -878,18 +878,17 @@ async function runOverdueReminders(companyId) {
     );
 
     for (const sh of stakeholders) {
-      const { rows: overdueTasks } = await pool.query(`
+      const { rows: pendingTasks } = await pool.query(`
         SELECT * FROM tt_tasks
         WHERE company_id = $1
           AND LOWER(stakeholder) = LOWER($2)
           AND completion_date IS NULL
-          AND COALESCE(revised_date_5, revised_date_4, revised_date_3, revised_date_2, revised_date_1, initial_target_date) < CURRENT_DATE
         ORDER BY id ASC
       `, [company.id, sh.name]);
 
-      if (overdueTasks.length === 0) continue;
+      if (pendingTasks.length === 0) continue;
 
-      const msg = buildMessage(sh.name, overdueTasks, company.name);
+      const msg = buildMessage(sh.name, pendingTasks, company.name);
       const ok = await sendWhatsAppText(sh.whatsapp_number, msg);
       if (ok) totalSent++;
     }
@@ -906,7 +905,6 @@ app.get('/api/notifications/status', auth, checkTrial, async (req, res) => {
       FROM tt_stakeholders s
       LEFT JOIN tt_tasks t ON t.company_id = s.company_id AND t.stakeholder = s.name
         AND t.completion_date IS NULL
-        AND COALESCE(t.revised_date_5, t.revised_date_4, t.revised_date_3, t.revised_date_2, t.revised_date_1, t.initial_target_date) < CURRENT_DATE
       WHERE s.company_id = $1 AND s.whatsapp_number IS NOT NULL AND s.whatsapp_number != ''
       GROUP BY s.id, s.name
       HAVING COUNT(t.id) > 0
