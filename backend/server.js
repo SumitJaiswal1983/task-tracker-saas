@@ -889,8 +889,6 @@ async function runOverdueReminders(companyId) {
 
       if (overdueTasks.length === 0) continue;
 
-      // Template first (opens 24-hr window), then full detailed message
-      await sendWhatsAppTemplate(sh.whatsapp_number, sh.name, overdueTasks.length);
       const msg = buildMessage(sh.name, overdueTasks, company.name);
       const ok = await sendWhatsAppText(sh.whatsapp_number, msg);
       if (ok) totalSent++;
@@ -938,7 +936,6 @@ app.post('/api/notifications/test', auth, adminOnly, checkTrial, async (req, res
     if (!phone) return res.status(400).json({ error: 'Phone number required' });
     const { rows } = await pool.query('SELECT name FROM tt_companies WHERE id=$1', [req.user.company_id]);
     const companyName = rows[0]?.name || 'Your Company';
-    await sendWhatsAppTemplate(phone, 'Test User', 3);
     const ok = await sendWhatsAppText(phone, `*Task Reminder - ${companyName}*\nHi Test User! Aaj ke pending tasks:\n\n1. Sample overdue task\n   📅 Target: 20 Apr 2026 ⚠️ Overdue | 📌 IT\n\nTotal: *1* pending task(s)\nLog in: https://task-tracker-saas.onrender.com`);
     if (ok) res.json({ success: true });
     else res.status(500).json({ error: 'Message failed. Check phone number and WhatsApp config.' });
