@@ -255,8 +255,8 @@ export default function PeopleAndSections() {
   return (
     <div>
       <div style={{ marginBottom: 20 }}>
-        <h2 style={{ fontSize: 16, fontWeight: 700 }}>People & Sections</h2>
-        <p style={{ fontSize: 13, color: '#888', marginTop: 2 }}>
+        <h2 style={{ fontSize: 22, fontWeight: 800, marginBottom: 3, color: '#111827', letterSpacing: '-0.5px' }}>People & Sections</h2>
+        <p style={{ fontSize: 13, color: '#9ca3af' }}>
           Stakeholders ke WhatsApp numbers set karein — roz 9 AM par pending tasks ka reminder jaayega
         </p>
       </div>

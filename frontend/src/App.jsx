@@ -83,14 +83,23 @@ export default function App() {
       <header className="header">
         <div className="header-brand">
           <div style={{
-            width: 32, height: 32, background: 'rgba(255,255,255,0.15)',
-            borderRadius: 8, display: 'flex', alignItems: 'center',
-            justifyContent: 'center', fontWeight: 700, fontSize: 16, color: 'white',
+            width: 34, height: 34,
+            background: 'linear-gradient(135deg, rgba(255,255,255,0.25), rgba(255,255,255,0.1))',
+            borderRadius: 9, display: 'flex', alignItems: 'center',
+            justifyContent: 'center', fontWeight: 800, fontSize: 16, color: 'white',
+            border: '1px solid rgba(255,255,255,0.2)',
           }}>
             T
           </div>
           <div className="header-brand-divider" />
-          <h1>Task Delegation Tracker</h1>
+          <div>
+            <h1>Task Delegation Tracker</h1>
+            {company?.company_name && (
+              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', marginTop: 1, fontWeight: 400 }}>
+                {company.company_name}
+              </div>
+            )}
+          </div>
         </div>
 
         <nav className="nav-tabs">

@@ -154,33 +154,44 @@ export default function Dashboard({ sheetName, currentUser }) {
 
   return (
     <div>
-      <div style={{ marginBottom: 20 }}>
-        <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>Dashboard</h2>
-        <p style={{ color: '#888', fontSize: 13 }}>
-          {sheetName || 'All sheets'} — {new Date().toLocaleDateString('en-IN', { dateStyle: 'long' })}
-        </p>
+      <div style={{ marginBottom: 20, display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+        <div>
+          <h2 style={{ fontSize: 22, fontWeight: 800, marginBottom: 3, color: '#111827', letterSpacing: '-0.5px' }}>Dashboard</h2>
+          <p style={{ color: '#9ca3af', fontSize: 13 }}>
+            {sheetName || 'All sheets'} &nbsp;·&nbsp; {new Date().toLocaleDateString('en-IN', { dateStyle: 'long' })}
+          </p>
+        </div>
+        <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '6px 14px', fontSize: 13, color: '#15803d', fontWeight: 600 }}>
+          {completionPct}% Complete
+        </div>
       </div>
 
       {/* Stat Cards */}
       <div className="stat-grid">
         <div className="stat-card blue">
+          <div className="stat-icon">📋</div>
           <div className="stat-label">Total Tasks</div>
           <div className="stat-value">{stats.total}</div>
         </div>
         <div className="stat-card green">
+          <div className="stat-icon">✅</div>
           <div className="stat-label">Completed</div>
           <div className="stat-value">{stats.completed}</div>
-          <div className="stat-sub">{completionPct}% done</div>
+          <div className="stat-sub">{completionPct}% of total</div>
         </div>
         <div className="stat-card orange">
+          <div className="stat-icon">⏳</div>
           <div className="stat-label">Pending</div>
           <div className="stat-value">{stats.pending}</div>
         </div>
         <div className="stat-card red">
+          <div className="stat-icon">🔴</div>
           <div className="stat-label">Overdue</div>
           <div className="stat-value">{stats.overdue}</div>
+          <div className="stat-sub">{stats.overdue > 0 ? 'Needs attention' : 'All on track'}</div>
         </div>
         <div className="stat-card purple">
+          <div className="stat-icon">⭐</div>
           <div className="stat-label">Avg Score</div>
           <div className="stat-value">{stats.avgScore || '—'}</div>
           <div className="stat-sub">out of 5.0</div>
@@ -189,14 +200,22 @@ export default function Dashboard({ sheetName, currentUser }) {
 
       {/* Overall Progress */}
       <div className="card" style={{ marginBottom: 20 }}>
-        <div className="card-header"><h3>Overall Completion</h3><span style={{ fontSize: 15, fontWeight: 700 }}>{completionPct}%</span></div>
-        <div style={{ padding: '16px 20px' }}>
-          <div className="progress-bar">
+        <div className="card-header">
+          <h3>Overall Completion</h3>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div className="progress-bar" style={{ width: 140 }}>
+              <div className="progress-fill" style={{ width: `${completionPct}%` }} />
+            </div>
+            <span style={{ fontSize: 15, fontWeight: 800, color: '#4f46e5', minWidth: 40 }}>{completionPct}%</span>
+          </div>
+        </div>
+        <div style={{ padding: '14px 20px' }}>
+          <div className="progress-bar" style={{ height: 10 }}>
             <div className="progress-fill" style={{ width: `${completionPct}%` }} />
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8, fontSize: 12, color: '#888' }}>
-            <span>{stats.completed} completed</span>
-            <span>{stats.pending} remaining</span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8, fontSize: 12, color: '#9ca3af' }}>
+            <span>✅ {stats.completed} completed</span>
+            <span>⏳ {stats.pending} remaining{stats.overdue > 0 ? ` · 🔴 ${stats.overdue} overdue` : ''}</span>
           </div>
         </div>
       </div>
@@ -204,7 +223,7 @@ export default function Dashboard({ sheetName, currentUser }) {
       <div className="dash-grid">
         {/* Stakeholder Performance */}
         <div className="card">
-          <div className="card-header"><h3>Stakeholder Performance</h3></div>
+          <div className="card-header"><h3>👥 Stakeholder Performance</h3></div>
           <div className="table-wrap">
             {stats.stakeholderStats.length === 0 ? (
               <div className="empty"><div>No data yet</div></div>
@@ -244,7 +263,7 @@ export default function Dashboard({ sheetName, currentUser }) {
 
         {/* Section Breakdown */}
         <div className="card">
-          <div className="card-header"><h3>Section Breakdown</h3></div>
+          <div className="card-header"><h3>🏢 Section Breakdown</h3></div>
           <div className="table-wrap">
             {stats.sectionStats.length === 0 ? (
               <div className="empty"><div>No data yet</div></div>
@@ -290,7 +309,7 @@ export default function Dashboard({ sheetName, currentUser }) {
       {/* Weekly Score */}
       <div className="card">
         <div className="card-header">
-          <h3>Weekly Score Tracking</h3>
+          <h3>📈 Weekly Score Tracking</h3>
           <form onSubmit={addWeekScore} style={{ display: 'flex', gap: 8 }}>
             <input
               className="filter-input"

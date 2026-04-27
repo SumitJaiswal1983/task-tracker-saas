@@ -120,12 +120,15 @@ export default function TaskList({ sheetName }) {
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <h2 style={{ fontSize: 16, fontWeight: 700 }}>
-          Tasks — <span style={{ color: '#666', fontWeight: 400 }}>{sheetName}</span>
-          <span style={{ marginLeft: 10, background: '#e3f2fd', color: '#1565c0', padding: '2px 8px', borderRadius: 20, fontSize: 12 }}>
-            {filtered.length}
-          </span>
-        </h2>
+        <div>
+          <h2 style={{ fontSize: 22, fontWeight: 800, marginBottom: 3, color: '#111827', letterSpacing: '-0.5px', display: 'flex', alignItems: 'center', gap: 10 }}>
+            Tasks
+            <span style={{ background: '#eef2ff', color: '#4f46e5', padding: '2px 10px', borderRadius: 20, fontSize: 13, fontWeight: 700 }}>
+              {filtered.length}
+            </span>
+          </h2>
+          <p style={{ color: '#9ca3af', fontSize: 13 }}>{sheetName}</p>
+        </div>
         <div style={{ display: 'flex', gap: 10 }}>
           <button
             className="btn btn-ghost"
