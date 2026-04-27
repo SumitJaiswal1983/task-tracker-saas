@@ -787,39 +787,38 @@ app.post('/api/payment/webhook', async (req, res) => {
 const WA_PHONE_ID = () => process.env.WA_PHONE_NUMBER_ID || process.env.WHATSAPP_PHONE_ID;
 const WA_TOKEN = () => process.env.WA_ACCESS_TOKEN || process.env.WHATSAPP_ACCESS_TOKEN;
 
-async function sendWhatsApp(toNumber, name, taskCount) {
+function buildMessage(stakeholderName, tasks, companyName) {
+  const today = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+  const lines = [
+    `*Task Reminder - ${companyName}*`,
+    `Hi ${stakeholderName}! Aaj ke pending tasks (${today}):`,
+    '',
+  ];
+  tasks.forEach((t, i) => {
+    const target = t.revised_date_5 || t.revised_date_4 || t.revised_date_3 ||
+      t.revised_date_2 || t.revised_date_1 || t.initial_target_date;
+    const targetStr = target
+      ? new Date(target).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+      : '-';
+    const overdue = target && new Date(target) < new Date() ? ' ⚠️ Overdue' : '';
+    lines.push(`${i + 1}. ${t.task_description}`);
+    lines.push(`   📅 Target: ${targetStr}${overdue} | 📌 ${t.section || '-'}`);
+    lines.push('');
+  });
+  lines.push(`Total: *${tasks.length}* pending task(s)`);
+  lines.push(`Log in: https://task-tracker-saas.onrender.com`);
+  return lines.join('\n');
+}
+
+async function waPost(body) {
   const phoneId = WA_PHONE_ID();
   const token = WA_TOKEN();
-  if (!phoneId || !token) {
-    console.error('WhatsApp: WA_PHONE_NUMBER_ID or WA_ACCESS_TOKEN not set');
-    return false;
-  }
-  const number = String(toNumber).replace(/[\s\-\+]/g, '');
-  if (number.length < 10) return false;
-
+  if (!phoneId || !token) return false;
   try {
     const res = await fetch(`https://graph.facebook.com/v19.0/${phoneId}/messages`, {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        messaging_product: 'whatsapp',
-        to: number,
-        type: 'template',
-        template: {
-          name: 'task_reminder',
-          language: { code: 'en' },
-          components: [{
-            type: 'body',
-            parameters: [
-              { type: 'text', text: String(name) },
-              { type: 'text', text: String(taskCount) },
-            ],
-          }],
-        },
-      }),
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
     });
     const data = await res.json();
     if (!res.ok) { console.error('WA error:', data?.error?.message || JSON.stringify(data)); return false; }
@@ -828,6 +827,35 @@ async function sendWhatsApp(toNumber, name, taskCount) {
     console.error('WhatsApp fetch error:', err.message);
     return false;
   }
+}
+
+async function sendWhatsAppTemplate(toNumber, name, taskCount) {
+  const number = String(toNumber).replace(/[\s\-\+]/g, '');
+  if (number.length < 10) return false;
+  return waPost({
+    messaging_product: 'whatsapp',
+    to: number,
+    type: 'template',
+    template: {
+      name: 'task_reminder',
+      language: { code: 'en' },
+      components: [{ type: 'body', parameters: [
+        { type: 'text', text: String(name) },
+        { type: 'text', text: String(taskCount) },
+      ]}],
+    },
+  });
+}
+
+async function sendWhatsAppText(toNumber, text) {
+  const number = String(toNumber).replace(/[\s\-\+]/g, '');
+  if (number.length < 10) return false;
+  return waPost({
+    messaging_product: 'whatsapp',
+    to: number,
+    type: 'text',
+    text: { body: text },
+  });
 }
 
 async function runOverdueReminders(companyId) {
@@ -861,7 +889,10 @@ async function runOverdueReminders(companyId) {
 
       if (overdueTasks.length === 0) continue;
 
-      const ok = await sendWhatsApp(sh.whatsapp_number, sh.name, overdueTasks.length);
+      // Template first (opens 24-hr window), then full detailed message
+      await sendWhatsAppTemplate(sh.whatsapp_number, sh.name, overdueTasks.length);
+      const msg = buildMessage(sh.name, overdueTasks, company.name);
+      const ok = await sendWhatsAppText(sh.whatsapp_number, msg);
       if (ok) totalSent++;
     }
   }
@@ -907,7 +938,8 @@ app.post('/api/notifications/test', auth, adminOnly, checkTrial, async (req, res
     if (!phone) return res.status(400).json({ error: 'Phone number required' });
     const { rows } = await pool.query('SELECT name FROM tt_companies WHERE id=$1', [req.user.company_id]);
     const companyName = rows[0]?.name || 'Your Company';
-    const ok = await sendWhatsApp(phone, 'Test User', 3);
+    await sendWhatsAppTemplate(phone, 'Test User', 3);
+    const ok = await sendWhatsAppText(phone, `*Task Reminder - ${companyName}*\nHi Test User! Aaj ke pending tasks:\n\n1. Sample overdue task\n   📅 Target: 20 Apr 2026 ⚠️ Overdue | 📌 IT\n\nTotal: *1* pending task(s)\nLog in: https://task-tracker-saas.onrender.com`);
     if (ok) res.json({ success: true });
     else res.status(500).json({ error: 'Message failed. Check phone number and WhatsApp config.' });
   } catch (err) {
