@@ -783,12 +783,45 @@ app.post('/api/payment/webhook', async (req, res) => {
 // WHATSAPP NOTIFICATIONS
 // ========================
 
-async function sendWhatsApp(to, templateName, params) {
-  const phoneId = process.env.WHATSAPP_PHONE_ID;
-  const token = process.env.WHATSAPP_ACCESS_TOKEN;
-  if (!phoneId || !token) return false;
+// Supports both naming conventions for env vars
+const WA_PHONE_ID = () => process.env.WA_PHONE_NUMBER_ID || process.env.WHATSAPP_PHONE_ID;
+const WA_TOKEN = () => process.env.WA_ACCESS_TOKEN || process.env.WHATSAPP_ACCESS_TOKEN;
 
-  const number = String(to).replace(/\D/g, '');
+function formatDate(d) {
+  if (!d) return '-';
+  return new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+function effectiveTarget(task) {
+  return task.revised_date_5 || task.revised_date_4 || task.revised_date_3 ||
+    task.revised_date_2 || task.revised_date_1 || task.initial_target_date;
+}
+
+function buildMessage(stakeholderName, tasks, companyName) {
+  const today = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+  const lines = [
+    `*Task Reminder - ${companyName}*`,
+    `Hi ${stakeholderName}! You have *${tasks.length}* overdue task(s) as of ${today}:`,
+    '',
+  ];
+  tasks.forEach((t, i) => {
+    const target = effectiveTarget(t);
+    lines.push(`${i + 1}. ${t.task_description}`);
+    lines.push(`   📅 Target: ${formatDate(target)} ⚠️ | 📌 ${t.section || '-'}`);
+    lines.push('');
+  });
+  lines.push(`Please log in and update: https://task-tracker-saas.onrender.com`);
+  return lines.join('\n');
+}
+
+async function sendWhatsApp(toNumber, text) {
+  const phoneId = WA_PHONE_ID();
+  const token = WA_TOKEN();
+  if (!phoneId || !token) {
+    console.error('WhatsApp: WA_PHONE_NUMBER_ID or WA_ACCESS_TOKEN not set');
+    return false;
+  }
+  const number = String(toNumber).replace(/[\s\-\+]/g, '');
   if (number.length < 10) return false;
 
   try {
@@ -801,16 +834,13 @@ async function sendWhatsApp(to, templateName, params) {
       body: JSON.stringify({
         messaging_product: 'whatsapp',
         to: number,
-        type: 'template',
-        template: {
-          name: templateName,
-          language: { code: 'en' },
-          components: [{ type: 'body', parameters: params.map(p => ({ type: 'text', text: String(p) })) }],
-        },
+        type: 'text',
+        text: { body: text },
       }),
     });
-    if (!res.ok) { const e = await res.json(); console.error('WA error:', JSON.stringify(e)); }
-    return res.ok;
+    const data = await res.json();
+    if (!res.ok) { console.error('WA error:', data?.error?.message || JSON.stringify(data)); return false; }
+    return true;
   } catch (err) {
     console.error('WhatsApp fetch error:', err.message);
     return false;
@@ -818,6 +848,8 @@ async function sendWhatsApp(to, templateName, params) {
 }
 
 async function runOverdueReminders(companyId) {
+  if (!WA_PHONE_ID() || !WA_TOKEN()) return 0;
+
   const companiesResult = companyId
     ? await pool.query('SELECT id, name FROM tt_companies WHERE id=$1', [companyId])
     : await pool.query(`
@@ -828,25 +860,27 @@ async function runOverdueReminders(companyId) {
 
   let totalSent = 0;
   for (const company of companiesResult.rows) {
-    const { rows: overdueRows } = await pool.query(`
-      SELECT stakeholder, COUNT(*) as count
-      FROM tt_tasks
-      WHERE company_id = $1
-        AND completion_date IS NULL
-        AND COALESCE(revised_date_5, revised_date_4, revised_date_3, revised_date_2, revised_date_1, initial_target_date) < CURRENT_DATE
-      GROUP BY stakeholder
-      HAVING stakeholder IS NOT NULL
-    `, [company.id]);
+    const { rows: stakeholders } = await pool.query(
+      `SELECT name, whatsapp_number FROM tt_stakeholders
+       WHERE company_id=$1 AND whatsapp_number IS NOT NULL AND whatsapp_number != ''`,
+      [company.id]
+    );
 
-    for (const row of overdueRows) {
-      const { rows: sh } = await pool.query(
-        'SELECT whatsapp_number FROM tt_stakeholders WHERE company_id=$1 AND name=$2',
-        [company.id, row.stakeholder]
-      );
-      if (sh[0]?.whatsapp_number) {
-        const ok = await sendWhatsApp(sh[0].whatsapp_number, 'task_overdue_reminder', [row.stakeholder, company.name, row.count]);
-        if (ok) totalSent++;
-      }
+    for (const sh of stakeholders) {
+      const { rows: overdueTasks } = await pool.query(`
+        SELECT * FROM tt_tasks
+        WHERE company_id = $1
+          AND LOWER(stakeholder) = LOWER($2)
+          AND completion_date IS NULL
+          AND COALESCE(revised_date_5, revised_date_4, revised_date_3, revised_date_2, revised_date_1, initial_target_date) < CURRENT_DATE
+        ORDER BY id ASC
+      `, [company.id, sh.name]);
+
+      if (overdueTasks.length === 0) continue;
+
+      const message = buildMessage(sh.name, overdueTasks, company.name);
+      const ok = await sendWhatsApp(sh.whatsapp_number, message);
+      if (ok) totalSent++;
     }
   }
   return totalSent;
@@ -855,14 +889,14 @@ async function runOverdueReminders(companyId) {
 // Notification status for current company
 app.get('/api/notifications/status', auth, checkTrial, async (req, res) => {
   try {
-    const configured = !!(process.env.WHATSAPP_PHONE_ID && process.env.WHATSAPP_ACCESS_TOKEN);
+    const configured = !!(WA_PHONE_ID() && WA_TOKEN());
     const { rows } = await pool.query(`
       SELECT s.name, COUNT(t.id) as task_count
       FROM tt_stakeholders s
       LEFT JOIN tt_tasks t ON t.company_id = s.company_id AND t.stakeholder = s.name
         AND t.completion_date IS NULL
         AND COALESCE(t.revised_date_5, t.revised_date_4, t.revised_date_3, t.revised_date_2, t.revised_date_1, t.initial_target_date) < CURRENT_DATE
-      WHERE s.company_id = $1 AND s.whatsapp_number IS NOT NULL
+      WHERE s.company_id = $1 AND s.whatsapp_number IS NOT NULL AND s.whatsapp_number != ''
       GROUP BY s.id, s.name
       HAVING COUNT(t.id) > 0
     `, [req.user.company_id]);
@@ -875,8 +909,8 @@ app.get('/api/notifications/status', auth, checkTrial, async (req, res) => {
 // Admin manually sends overdue reminders
 app.post('/api/notifications/send-overdue', auth, adminOnly, checkTrial, async (req, res) => {
   try {
-    if (!process.env.WHATSAPP_PHONE_ID || !process.env.WHATSAPP_ACCESS_TOKEN)
-      return res.status(400).json({ error: 'WhatsApp not configured. Add WHATSAPP_PHONE_ID and WHATSAPP_ACCESS_TOKEN in environment.' });
+    if (!WA_PHONE_ID() || !WA_TOKEN())
+      return res.status(400).json({ error: 'WhatsApp not configured. Add WA_PHONE_NUMBER_ID and WA_ACCESS_TOKEN in Render environment.' });
     const sent = await runOverdueReminders(req.user.company_id);
     res.json({ success: true, sent });
   } catch (err) {
@@ -891,7 +925,7 @@ app.post('/api/notifications/test', auth, adminOnly, checkTrial, async (req, res
     if (!phone) return res.status(400).json({ error: 'Phone number required' });
     const { rows } = await pool.query('SELECT name FROM tt_companies WHERE id=$1', [req.user.company_id]);
     const companyName = rows[0]?.name || 'Your Company';
-    const ok = await sendWhatsApp(phone, 'task_overdue_reminder', ['Test User', companyName, '3']);
+    const ok = await sendWhatsApp(phone, `*Task Reminder - ${companyName}*\nHi! This is a test message from Task Delegation Tracker.\nhttps://task-tracker-saas.onrender.com`);
     if (ok) res.json({ success: true });
     else res.status(500).json({ error: 'Message failed. Check phone number and WhatsApp config.' });
   } catch (err) {
