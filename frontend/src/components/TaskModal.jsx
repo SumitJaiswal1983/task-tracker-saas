@@ -94,7 +94,7 @@ export default function TaskModal({ task, sheetName, onClose, onSaved }) {
         </div>
         <form onSubmit={handleSubmit}>
           <div className="modal-body">
-            {error && <div style={{ color: '#f44336', marginBottom: 12, fontSize: 13 }}>{error}</div>}
+            {error && <div className="form-error">{error}</div>}
             <div className="form-grid">
               <div className="form-group full">
                 <label className="form-label">Task Description *</label>

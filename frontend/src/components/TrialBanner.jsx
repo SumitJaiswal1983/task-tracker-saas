@@ -6,12 +6,15 @@ export default function TrialBanner({ company }) {
 
   return (
     <div style={{
-      background: urgent ? '#b71c1c' : '#e65100',
+      background: urgent
+        ? 'linear-gradient(90deg, #dc2626, #b91c1c)'
+        : 'linear-gradient(90deg, #d97706, #b45309)',
       color: 'white',
       textAlign: 'center',
-      padding: '7px 16px',
+      padding: '8px 16px',
       fontSize: 13,
       fontWeight: 500,
+      letterSpacing: '0.1px',
     }}>
       {days === 0
         ? 'Your trial expires today.'

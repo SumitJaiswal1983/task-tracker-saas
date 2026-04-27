@@ -37,7 +37,7 @@ export default function Paywall({ company, user, onPaymentSuccess, onLogout }) {
           name: user?.name || '',
           email: user?.email || '',
         },
-        theme: { color: '#1a237e' },
+        theme: { color: '#4f46e5' },
         handler: async function (response) {
           try {
             const result = await api.verifyPayment({
@@ -72,67 +72,47 @@ export default function Paywall({ company, user, onPaymentSuccess, onLogout }) {
   }
 
   return (
-    <div style={{
-      minHeight: '100vh',
-      background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      padding: 20,
-    }}>
-      <div style={{
-        background: 'white',
-        borderRadius: 16,
-        padding: '48px 40px',
-        width: '100%',
-        maxWidth: 480,
-        textAlign: 'center',
-        boxShadow: '0 25px 60px rgba(0,0,0,0.4)',
-      }}>
+    <div className="auth-page">
+      <div className="auth-card" style={{ maxWidth: 480, textAlign: 'center', padding: '48px 40px' }}>
         <div style={{
-          width: 64, height: 64, background: '#fce4ec', borderRadius: '50%',
+          width: 64, height: 64,
+          background: 'linear-gradient(135deg, #4f46e5, #7c3aed)',
+          borderRadius: '50%',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           margin: '0 auto 20px', fontSize: 28,
+          boxShadow: '0 8px 24px rgba(79,70,229,0.35)',
         }}>
           🔒
         </div>
 
-        <h2 style={{ fontSize: 22, fontWeight: 700, color: '#1a1a2e', marginBottom: 8 }}>
+        <h2 style={{ fontSize: 22, fontWeight: 800, color: '#1e1b4b', marginBottom: 8 }}>
           Your free trial has ended
         </h2>
-        <p style={{ color: '#666', fontSize: 14, marginBottom: 24, lineHeight: 1.6 }}>
+        <p style={{ color: '#6b7280', fontSize: 14, marginBottom: 24, lineHeight: 1.6 }}>
           {company?.company_name && <><strong>{company.company_name}</strong>'s 30-day trial is over.<br /></>}
           Choose a plan to continue.
         </p>
 
-        {error && (
-          <div style={{
-            background: '#fce4ec', color: '#c62828', borderRadius: 8,
-            padding: '10px 14px', fontSize: 13, marginBottom: 16,
-          }}>
-            {error}
-          </div>
-        )}
+        {error && <div className="auth-error">{error}</div>}
 
         {/* Plans */}
         <div style={{ display: 'flex', gap: 12, marginBottom: 24 }}>
           {/* Monthly */}
           <div style={{
-            flex: 1, border: '2px solid #1a237e', borderRadius: 12,
-            padding: '20px 16px', cursor: 'pointer',
-            background: loading === 'monthly' ? '#e8eaf6' : '#fff',
+            flex: 1, border: '2px solid #4f46e5', borderRadius: 12,
+            padding: '20px 16px',
+            background: loading === 'monthly' ? '#eef2ff' : '#fff',
           }}>
-            <div style={{ fontSize: 13, color: '#888', marginBottom: 4 }}>Monthly</div>
-            <div style={{ fontSize: 28, fontWeight: 800, color: '#1a237e' }}>
-              ₹799<span style={{ fontSize: 14, fontWeight: 400, color: '#888' }}>/mo</span>
+            <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Monthly</div>
+            <div style={{ fontSize: 28, fontWeight: 800, color: '#4f46e5' }}>
+              ₹799<span style={{ fontSize: 14, fontWeight: 400, color: '#6b7280' }}>/mo</span>
             </div>
             <button
               onClick={() => handlePay('monthly')}
               disabled={loading !== null}
+              className="btn btn-primary"
               style={{
-                marginTop: 14, width: '100%', background: '#1a237e', color: 'white',
-                border: 'none', borderRadius: 8, padding: '10px', fontSize: 13,
-                fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer',
+                marginTop: 14, width: '100%', justifyContent: 'center', padding: '10px',
                 opacity: loading !== null && loading !== 'monthly' ? 0.5 : 1,
               }}
             >
@@ -142,28 +122,27 @@ export default function Paywall({ company, user, onPaymentSuccess, onLogout }) {
 
           {/* Yearly */}
           <div style={{
-            flex: 1, border: '2px solid #2e7d32', borderRadius: 12,
-            padding: '20px 16px', cursor: 'pointer', position: 'relative',
-            background: loading === 'yearly' ? '#e8f5e9' : '#fff',
+            flex: 1, border: '2px solid #16a34a', borderRadius: 12,
+            padding: '20px 16px', position: 'relative',
+            background: loading === 'yearly' ? '#dcfce7' : '#fff',
           }}>
             <div style={{
               position: 'absolute', top: -10, left: '50%', transform: 'translateX(-50%)',
-              background: '#2e7d32', color: 'white', fontSize: 10, fontWeight: 700,
+              background: '#16a34a', color: 'white', fontSize: 10, fontWeight: 700,
               padding: '2px 10px', borderRadius: 20, whiteSpace: 'nowrap',
             }}>
               SAVE 27%
             </div>
-            <div style={{ fontSize: 13, color: '#888', marginBottom: 4 }}>Yearly</div>
-            <div style={{ fontSize: 28, fontWeight: 800, color: '#2e7d32' }}>
-              ₹6,999<span style={{ fontSize: 14, fontWeight: 400, color: '#888' }}>/yr</span>
+            <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Yearly</div>
+            <div style={{ fontSize: 28, fontWeight: 800, color: '#16a34a' }}>
+              ₹6,999<span style={{ fontSize: 14, fontWeight: 400, color: '#6b7280' }}>/yr</span>
             </div>
             <button
               onClick={() => handlePay('yearly')}
               disabled={loading !== null}
+              className="btn btn-success"
               style={{
-                marginTop: 14, width: '100%', background: '#2e7d32', color: 'white',
-                border: 'none', borderRadius: 8, padding: '10px', fontSize: 13,
-                fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer',
+                marginTop: 14, width: '100%', justifyContent: 'center', padding: '10px',
                 opacity: loading !== null && loading !== 'yearly' ? 0.5 : 1,
               }}
             >
@@ -172,14 +151,11 @@ export default function Paywall({ company, user, onPaymentSuccess, onLogout }) {
           </div>
         </div>
 
-        <div style={{ fontSize: 12, color: '#888', marginBottom: 16 }}>
+        <div style={{ fontSize: 12, color: '#9ca3af', marginBottom: 16 }}>
           Unlimited tasks & users · All features · Secure payment via Razorpay
         </div>
 
-        <button
-          onClick={onLogout}
-          style={{ background: 'none', border: 'none', color: '#bbb', cursor: 'pointer', fontSize: 13 }}
-        >
+        <button className="auth-link" onClick={onLogout} style={{ color: '#9ca3af' }}>
           Sign out
         </button>
       </div>

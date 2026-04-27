@@ -26,45 +26,16 @@ export default function Login({ onLogin, onSignup }) {
   }
 
   return (
-    <div style={{
-      minHeight: '100vh',
-      background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      padding: 20,
-    }}>
-      <div style={{
-        background: 'white',
-        borderRadius: 16,
-        padding: '40px 36px',
-        width: '100%',
-        maxWidth: 400,
-        boxShadow: '0 25px 60px rgba(0,0,0,0.4)',
-      }}>
-        <div style={{ textAlign: 'center', marginBottom: 32 }}>
-          <div style={{
-            width: 48, height: 48, background: '#1a237e', borderRadius: 12,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            margin: '0 auto 12px', fontSize: 22, color: 'white', fontWeight: 700,
-          }}>
-            T
-          </div>
-          <h2 style={{ fontSize: 20, fontWeight: 700, color: '#1a1a2e', marginBottom: 4 }}>
-            Task Delegation Tracker
-          </h2>
-          <p style={{ color: '#888', fontSize: 13 }}>Sign in to your account</p>
+    <div className="auth-page">
+      <div className="auth-card">
+        <div className="auth-logo">
+          <div className="auth-logo-icon">T</div>
+          <h2 className="auth-title">Task Delegation Tracker</h2>
+          <p className="auth-subtitle">Sign in to your account</p>
         </div>
 
         <form onSubmit={handleSubmit}>
-          {error && (
-            <div style={{
-              background: '#fce4ec', color: '#c62828', borderRadius: 8,
-              padding: '10px 14px', fontSize: 13, marginBottom: 16,
-            }}>
-              {error}
-            </div>
-          )}
+          {error && <div className="auth-error">{error}</div>}
 
           <div className="form-group" style={{ marginBottom: 16 }}>
             <label className="form-label">Email</label>
@@ -93,28 +64,19 @@ export default function Login({ onLogin, onSignup }) {
 
           <button
             type="submit"
-            className="btn btn-primary"
+            className="btn btn-primary auth-submit"
             disabled={loading}
-            style={{ width: '100%', justifyContent: 'center', padding: '11px', fontSize: 14 }}
           >
-            {loading ? 'Signing in...' : 'Sign In'}
+            {loading ? 'Signing in…' : 'Sign In'}
           </button>
         </form>
 
-        <div style={{ textAlign: 'center', marginTop: 20 }}>
-          <p style={{ fontSize: 13, color: '#666', marginBottom: 0 }}>
-            Don't have an account?{' '}
-            <button
-              onClick={onSignup}
-              style={{
-                background: 'none', border: 'none', color: '#1a237e',
-                cursor: 'pointer', fontWeight: 600, fontSize: 13,
-              }}
-            >
-              Start 30-day free trial
-            </button>
-          </p>
-        </div>
+        <p className="auth-switch">
+          Don't have an account?{' '}
+          <button className="auth-link" onClick={onSignup}>
+            Start 30-day free trial
+          </button>
+        </p>
       </div>
     </div>
   );
