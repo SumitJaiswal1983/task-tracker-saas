@@ -787,34 +787,7 @@ app.post('/api/payment/webhook', async (req, res) => {
 const WA_PHONE_ID = () => process.env.WA_PHONE_NUMBER_ID || process.env.WHATSAPP_PHONE_ID;
 const WA_TOKEN = () => process.env.WA_ACCESS_TOKEN || process.env.WHATSAPP_ACCESS_TOKEN;
 
-function formatDate(d) {
-  if (!d) return '-';
-  return new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
-}
-
-function effectiveTarget(task) {
-  return task.revised_date_5 || task.revised_date_4 || task.revised_date_3 ||
-    task.revised_date_2 || task.revised_date_1 || task.initial_target_date;
-}
-
-function buildMessage(stakeholderName, tasks, companyName) {
-  const today = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
-  const lines = [
-    `*Task Reminder - ${companyName}*`,
-    `Hi ${stakeholderName}! You have *${tasks.length}* overdue task(s) as of ${today}:`,
-    '',
-  ];
-  tasks.forEach((t, i) => {
-    const target = effectiveTarget(t);
-    lines.push(`${i + 1}. ${t.task_description}`);
-    lines.push(`   📅 Target: ${formatDate(target)} ⚠️ | 📌 ${t.section || '-'}`);
-    lines.push('');
-  });
-  lines.push(`Please log in and update: https://task-tracker-saas.onrender.com`);
-  return lines.join('\n');
-}
-
-async function sendWhatsApp(toNumber, text) {
+async function sendWhatsApp(toNumber, name, taskCount) {
   const phoneId = WA_PHONE_ID();
   const token = WA_TOKEN();
   if (!phoneId || !token) {
@@ -834,8 +807,18 @@ async function sendWhatsApp(toNumber, text) {
       body: JSON.stringify({
         messaging_product: 'whatsapp',
         to: number,
-        type: 'text',
-        text: { body: text },
+        type: 'template',
+        template: {
+          name: 'task_reminder',
+          language: { code: 'en' },
+          components: [{
+            type: 'body',
+            parameters: [
+              { type: 'text', text: String(name) },
+              { type: 'text', text: String(taskCount) },
+            ],
+          }],
+        },
       }),
     });
     const data = await res.json();
@@ -878,8 +861,7 @@ async function runOverdueReminders(companyId) {
 
       if (overdueTasks.length === 0) continue;
 
-      const message = buildMessage(sh.name, overdueTasks, company.name);
-      const ok = await sendWhatsApp(sh.whatsapp_number, message);
+      const ok = await sendWhatsApp(sh.whatsapp_number, sh.name, overdueTasks.length);
       if (ok) totalSent++;
     }
   }
@@ -925,7 +907,7 @@ app.post('/api/notifications/test', auth, adminOnly, checkTrial, async (req, res
     if (!phone) return res.status(400).json({ error: 'Phone number required' });
     const { rows } = await pool.query('SELECT name FROM tt_companies WHERE id=$1', [req.user.company_id]);
     const companyName = rows[0]?.name || 'Your Company';
-    const ok = await sendWhatsApp(phone, `*Task Reminder - ${companyName}*\nHi! This is a test message from Task Delegation Tracker.\nhttps://task-tracker-saas.onrender.com`);
+    const ok = await sendWhatsApp(phone, 'Test User', 3);
     if (ok) res.json({ success: true });
     else res.status(500).json({ error: 'Message failed. Check phone number and WhatsApp config.' });
   } catch (err) {
