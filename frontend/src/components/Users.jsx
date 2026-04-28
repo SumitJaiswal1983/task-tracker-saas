@@ -104,7 +104,7 @@ function UserModal({ user, onClose, onSaved }) {
                     maxLength={15}
                   />
                 </div>
-                <span style={{ fontSize: 11, color: '#888' }}>Daily morning pending task reminder bheja jaayega</span>
+                <span style={{ fontSize: 11, color: '#888' }}>A daily morning reminder will be sent for pending tasks</span>
               </div>
             </div>
           </div>

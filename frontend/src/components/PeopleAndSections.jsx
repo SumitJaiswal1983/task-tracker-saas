@@ -50,7 +50,7 @@ function PeoplePanel() {
 
   async function handleSave(e) {
     e.preventDefault();
-    if (!form.name.trim()) { setError('Naam required'); return; }
+    if (!form.name.trim()) { setError('Name is required'); return; }
     const whatsapp = form.localNumber.trim() ? (form.countryCode.trim() + form.localNumber.trim()) : null;
     setSaving(true); setError('');
     try {
@@ -63,19 +63,19 @@ function PeoplePanel() {
   }
 
   async function handleDelete(p) {
-    if (!window.confirm(`"${p.name}" ko delete karein?`)) return;
+    if (!window.confirm(`Delete "${p.name}"?`)) return;
     await api.deletePerson(p.id);
     load();
   }
 
   async function sendNow() {
-    if (!window.confirm('Abhi sabko WhatsApp reminder bhejein?')) return;
+    if (!window.confirm('Send WhatsApp reminders to everyone now?')) return;
     setSending(true);
     try {
       const res = await api.sendOverdueReminders();
       alert(res.sent > 0
         ? `✅ ${res.sent} reminder(s) bheje gaye!`
-        : 'Koi overdue task nahi mili ya WhatsApp number set nahi hai.');
+        : 'No overdue tasks found, or no WhatsApp number is set.');
     } catch (e) {
       alert('Error: ' + e.message);
     }
@@ -87,7 +87,7 @@ function PeoplePanel() {
       <div style={{ padding: '16px 20px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f0f0f0' }}>
         <div>
           <div style={{ fontWeight: 700, fontSize: 15 }}>People / Stakeholders</div>
-          <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>Naam aur WhatsApp number manage karein</div>
+          <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>Manage names and WhatsApp numbers</div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button className="btn btn-ghost btn-sm" onClick={sendNow} disabled={sending} style={{ fontSize: 12 }}>
@@ -101,12 +101,12 @@ function PeoplePanel() {
         {loading ? (
           <div className="loading"><div className="spinner" /></div>
         ) : people.length === 0 ? (
-          <div style={{ padding: 24, textAlign: 'center', color: '#bbb', fontSize: 13 }}>Koi person nahi hai</div>
+          <div style={{ padding: 24, textAlign: 'center', color: '#bbb', fontSize: 13 }}>No people added yet</div>
         ) : (
           <table>
             <thead>
               <tr>
-                <th>Naam</th>
+                <th>Name</th>
                 <th>WhatsApp</th>
                 <th>Actions</th>
               </tr>
@@ -165,7 +165,7 @@ function PeoplePanel() {
                       maxLength={15}
                     />
                   </div>
-                  <span style={{ fontSize: 11, color: '#888' }}>Khali chhodo agar WhatsApp nahi bhejni</span>
+                  <span style={{ fontSize: 11, color: '#888' }}>Leave empty if no WhatsApp reminder needed</span>
                 </div>
               </div>
             </div>
@@ -203,7 +203,7 @@ function SectionsPanel() {
 
   async function handleSave(e) {
     e.preventDefault();
-    if (!form.name.trim()) { setError('Naam required'); return; }
+    if (!form.name.trim()) { setError('Name is required'); return; }
     setSaving(true); setError('');
     try {
       if (modal.mode === 'add') await api.createSection({ name: form.name.trim() });
@@ -214,7 +214,7 @@ function SectionsPanel() {
   }
 
   async function handleDelete(s) {
-    if (!window.confirm(`"${s.name}" section delete karein?`)) return;
+    if (!window.confirm(`Delete section "${s.name}"?`)) return;
     await api.deleteSection(s.id);
     load();
   }
@@ -223,8 +223,8 @@ function SectionsPanel() {
     <div className="card" style={{ flex: 1, minWidth: 0 }}>
       <div style={{ padding: '16px 20px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f0f0f0' }}>
         <div>
-          <div style={{ fontWeight: 700, fontSize: 15 }}>Sections / Departments</div>
-          <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>Task sections manage karein</div>
+          <div style={{ fontWeight: 700, fontSize: 15 }}>Sections</div>
+          <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>Manage task sections and departments</div>
         </div>
         <button className="btn btn-primary btn-sm" onClick={openAdd}>+ Add</button>
       </div>
@@ -233,12 +233,12 @@ function SectionsPanel() {
         {loading ? (
           <div className="loading"><div className="spinner" /></div>
         ) : sections.length === 0 ? (
-          <div style={{ padding: 24, textAlign: 'center', color: '#bbb', fontSize: 13 }}>Koi section nahi hai</div>
+          <div style={{ padding: 24, textAlign: 'center', color: '#bbb', fontSize: 13 }}>No sections added yet</div>
         ) : (
           <table>
             <thead>
               <tr>
-                <th>Section Naam</th>
+                <th>Section Name</th>
                 <th>Actions</th>
               </tr>
             </thead>
@@ -265,7 +265,7 @@ function SectionsPanel() {
             <div className="modal-body">
               {error && <div style={{ color: '#f44336', marginBottom: 10, fontSize: 13 }}>{error}</div>}
               <div className="form-group">
-                <label className="form-label">Section Naam *</label>
+                <label className="form-label">Section Name *</label>
                 <input className="form-control" value={form.name} onChange={e => setForm({ name: e.target.value })} placeholder="e.g. Quality" autoFocus />
               </div>
             </div>
@@ -287,7 +287,7 @@ export default function PeopleAndSections() {
       <div style={{ marginBottom: 20 }}>
         <h2 style={{ fontSize: 22, fontWeight: 800, marginBottom: 3, color: '#111827', letterSpacing: '-0.5px' }}>People & Sections</h2>
         <p style={{ fontSize: 13, color: '#9ca3af' }}>
-          Stakeholders ke WhatsApp numbers set karein — roz 9 AM par pending tasks ka reminder jaayega
+          Set stakeholders' WhatsApp numbers — a daily reminder will be sent at 9 AM for pending tasks
         </p>
       </div>
       <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'flex-start' }}>
