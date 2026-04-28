@@ -26,6 +26,12 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "2be58bf7-5563-429a-9706-dbbfd8a0e955"
+      }
+    },
+    "owner": "sumit_jaiswal"
   }
 }
