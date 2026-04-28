@@ -4,12 +4,19 @@ import { api } from '../api';
 const ROLES = ['admin', 'viewer'];
 
 function UserModal({ user, onClose, onSaved }) {
+  function splitNum(num) {
+    if (!num) return { countryCode: '91', localNumber: '' };
+    if (num.length > 10) return { countryCode: num.slice(0, num.length - 10), localNumber: num.slice(-10) };
+    return { countryCode: '91', localNumber: num };
+  }
+  const { countryCode: initCC, localNumber: initLN } = splitNum(user?.whatsapp_number || '');
   const [form, setForm] = useState({
     name: user?.name || '',
     email: user?.email || '',
     role: user?.role || 'viewer',
     password: '',
-    whatsapp_number: user?.whatsapp_number || '',
+    countryCode: initCC,
+    localNumber: initLN,
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -23,7 +30,8 @@ function UserModal({ user, onClose, onSaved }) {
     setSaving(true);
     setError('');
     try {
-      const payload = { name: form.name, email: form.email, role: form.role, whatsapp_number: form.whatsapp_number || null };
+      const whatsapp = form.localNumber.trim() ? (form.countryCode.trim() + form.localNumber.trim()) : null;
+      const payload = { name: form.name, email: form.email, role: form.role, whatsapp_number: whatsapp };
       if (form.password) payload.password = form.password;
       if (user) {
         await api.updateUser(user.id, payload);
@@ -75,13 +83,27 @@ function UserModal({ user, onClose, onSaved }) {
                 />
               </div>
               <div className="form-group">
-                <label className="form-label">WhatsApp Number (with country code)</label>
-                <input
-                  className="form-control"
-                  value={form.whatsapp_number}
-                  onChange={e => set('whatsapp_number', e.target.value)}
-                  placeholder="e.g. 919876543210"
-                />
+                <label className="form-label">WhatsApp Number</label>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', border: '1px solid #e5e7eb', borderRadius: 8, padding: '0 10px', background: '#fafafa', minWidth: 80 }}>
+                    <span style={{ color: '#6b7280', fontSize: 14, marginRight: 2 }}>+</span>
+                    <input
+                      style={{ border: 'none', background: 'transparent', width: 44, fontSize: 14, outline: 'none', padding: '10px 0' }}
+                      value={form.countryCode}
+                      onChange={e => set('countryCode', e.target.value.replace(/\D/g, ''))}
+                      placeholder="91"
+                      maxLength={4}
+                    />
+                  </div>
+                  <input
+                    className="form-control"
+                    style={{ flex: 1 }}
+                    value={form.localNumber}
+                    onChange={e => set('localNumber', e.target.value.replace(/\D/g, ''))}
+                    placeholder="98765 43210"
+                    maxLength={15}
+                  />
+                </div>
                 <span style={{ fontSize: 11, color: '#888' }}>Daily morning pending task reminder bheja jaayega</span>
               </div>
             </div>

@@ -50,7 +50,7 @@ function HeaderRight({ sheet, setSheet }) {
 export default function AppNavigator({ user, company, onLogout }) {
   const [sheet, setSheet] = useState('Sheet 1');
   const insets = useSafeAreaInsets();
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = user?.role === 'admin' || user?.role === 'superadmin';
 
   const tabBarHeight = 56 + insets.bottom;
 

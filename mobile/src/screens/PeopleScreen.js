@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, FlatList, StyleSheet, TouchableOpacity,
-  TextInput, Alert, Modal, ScrollView, KeyboardAvoidingView,
-  Platform, ActivityIndicator, RefreshControl,
+  TextInput, Alert, Modal, ScrollView, KeyboardAvoidingView, Platform,
+  ActivityIndicator, RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, shadow, radius } from '../theme';
@@ -10,18 +10,29 @@ import { api } from '../api';
 
 // ── Person add/edit modal ────────────────────────────────────────
 function PersonForm({ visible, person, onClose, onSaved }) {
-  const [form, setForm] = useState({ name: '', whatsapp_number: '' });
+  const [name, setName] = useState('');
+  const [countryCode, setCountryCode] = useState('91');
+  const [localNumber, setLocalNumber] = useState('');
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    setForm({ name: person?.name || '', whatsapp_number: person?.whatsapp_number || '' });
+    setName(person?.name || '');
+    const num = person?.whatsapp_number || '';
+    if (num.length > 10) {
+      setCountryCode(num.slice(0, num.length - 10));
+      setLocalNumber(num.slice(-10));
+    } else {
+      setCountryCode('91');
+      setLocalNumber(num);
+    }
   }, [person, visible]);
 
   async function handleSave() {
-    if (!form.name.trim()) { Alert.alert('Error', 'Name required'); return; }
+    if (!name.trim()) { Alert.alert('Error', 'Name required'); return; }
+    const whatsapp = localNumber.trim() ? (countryCode.trim() + localNumber.trim()) : null;
     setSaving(true);
     try {
-      const payload = { name: form.name.trim(), whatsapp_number: form.whatsapp_number.trim() || null };
+      const payload = { name: name.trim(), whatsapp_number: whatsapp };
       if (person) await api.updatePerson(person.id, payload);
       else await api.createPerson(payload);
       onSaved();
@@ -31,36 +42,49 @@ function PersonForm({ visible, person, onClose, onSaved }) {
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }} edges={['top']}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }} edges={['top', 'bottom']}>
         <View style={s.modalHeader}>
           <Text style={s.modalTitle}>{person ? 'Edit Person' : 'Add Person'}</Text>
           <TouchableOpacity onPress={onClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
             <Text style={s.modalClose}>✕</Text>
           </TouchableOpacity>
         </View>
-        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-          <ScrollView style={{ flex: 1, padding: 20 }} keyboardShouldPersistTaps="handled">
-            <Text style={s.fieldLabel}>Full Name *</Text>
+        <ScrollView style={{ flex: 1, padding: 20 }} keyboardShouldPersistTaps="handled">
+          <Text style={s.fieldLabel}>Full Name *</Text>
+          <TextInput
+            style={s.fieldInput}
+            value={name}
+            onChangeText={setName}
+            placeholder="e.g. Suraj Kant"
+            placeholderTextColor="#9ca3af"
+            autoFocus
+          />
+          <Text style={[s.fieldLabel, { marginTop: 18 }]}>WhatsApp Number</Text>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#fafafa', borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 8, paddingHorizontal: 12, minWidth: 72 }}>
+              <Text style={{ fontSize: 14, color: '#6b7280', marginRight: 2 }}>+</Text>
+              <TextInput
+                style={{ fontSize: 14, color: '#111827', minWidth: 36, padding: 12, paddingLeft: 0 }}
+                value={countryCode}
+                onChangeText={v => setCountryCode(v.replace(/\D/g, ''))}
+                placeholder="91"
+                placeholderTextColor="#9ca3af"
+                keyboardType="number-pad"
+                maxLength={4}
+              />
+            </View>
             <TextInput
-              style={s.fieldInput}
-              value={form.name}
-              onChangeText={v => setForm(f => ({ ...f, name: v }))}
-              placeholder="e.g. Suraj Kant"
-              placeholderTextColor="#9ca3af"
-              autoFocus
-            />
-            <Text style={[s.fieldLabel, { marginTop: 18 }]}>WhatsApp Number</Text>
-            <TextInput
-              style={s.fieldInput}
-              value={form.whatsapp_number}
-              onChangeText={v => setForm(f => ({ ...f, whatsapp_number: v }))}
-              placeholder="919876543210 (with country code)"
+              style={[s.fieldInput, { flex: 1 }]}
+              value={localNumber}
+              onChangeText={v => setLocalNumber(v.replace(/\D/g, ''))}
+              placeholder="98765 43210"
               placeholderTextColor="#9ca3af"
               keyboardType="number-pad"
+              maxLength={15}
             />
-            <Text style={s.fieldHint}>Leave empty if no WhatsApp reminder needed</Text>
-          </ScrollView>
-        </KeyboardAvoidingView>
+          </View>
+          <Text style={s.fieldHint}>Leave empty if no WhatsApp reminder needed</Text>
+        </ScrollView>
         <View style={s.modalFooter}>
           <TouchableOpacity style={s.cancelBtn} onPress={onClose}>
             <Text style={s.cancelBtnText}>Cancel</Text>

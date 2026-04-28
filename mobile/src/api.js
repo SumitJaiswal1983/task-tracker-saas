@@ -55,4 +55,9 @@ export const api = {
 
   sendOverdueReminders: () => post('/notifications/send-overdue', {}),
   getNotificationStatus: () => get('/notifications/status'),
+
+  getUsers: () => get('/users').then(r => Array.isArray(r) ? r : []),
+  createUser: (body) => post('/users', body),
+  updateUser: (id, body) => put(`/users/${id}`, body),
+  deleteUser: (id) => del(`/users/${id}`),
 };

@@ -2,16 +2,101 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, FlatList, StyleSheet, TouchableOpacity,
   TextInput, RefreshControl, ActivityIndicator, Alert,
-  Modal, ScrollView, KeyboardAvoidingView, Platform,
+  Modal, ScrollView, Share,
 } from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, shadow, radius } from '../theme';
 import { api } from '../api';
 
 function fmt(d) {
   if (!d) return '—';
-  return new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+  return new Date(d + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 }
+
+// ── Reusable field components (defined OUTSIDE modals to prevent keyboard dismissal) ──
+
+function Field({ label, value, onChange, placeholder, multiline, style, ...rest }) {
+  return (
+    <View style={s.fieldGroup}>
+      <Text style={s.fieldLabel}>{label}</Text>
+      <TextInput
+        style={[s.fieldInput, multiline && { height: 80, textAlignVertical: 'top' }, style]}
+        value={value}
+        onChangeText={onChange}
+        placeholder={placeholder || ''}
+        placeholderTextColor="#9ca3af"
+        multiline={multiline}
+        {...rest}
+      />
+    </View>
+  );
+}
+
+function PickerField({ label, value, onChange, options }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <View style={s.fieldGroup}>
+      <Text style={s.fieldLabel}>{label}</Text>
+      <TouchableOpacity style={[s.fieldInput, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]} onPress={() => setOpen(true)}>
+        <Text style={{ color: value ? colors.text : '#9ca3af', fontSize: 14 }}>
+          {value || `Select ${label}`}
+        </Text>
+        <Text style={{ color: colors.textMuted, fontSize: 12 }}>▼</Text>
+      </TouchableOpacity>
+      <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
+        <TouchableOpacity style={s.pickerOverlay} activeOpacity={1} onPress={() => setOpen(false)}>
+          <View style={s.pickerBox}>
+            <Text style={s.pickerTitle}>{label}</Text>
+            <ScrollView keyboardShouldPersistTaps="handled">
+              <TouchableOpacity style={s.pickerOption} onPress={() => { onChange(''); setOpen(false); }}>
+                <Text style={{ color: colors.textMuted, fontSize: 14 }}>— None —</Text>
+              </TouchableOpacity>
+              {options.map(opt => (
+                <TouchableOpacity key={opt} style={s.pickerOption} onPress={() => { onChange(opt); setOpen(false); }}>
+                  <Text style={{ fontSize: 14, color: value === opt ? colors.primary : colors.text, fontWeight: value === opt ? '700' : '400' }}>{opt}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+    </View>
+  );
+}
+
+function DateField({ label, value, onChange }) {
+  const [show, setShow] = useState(false);
+  const dateObj = value ? new Date(value + 'T12:00:00') : new Date();
+
+  return (
+    <View style={s.fieldGroup}>
+      <Text style={s.fieldLabel}>{label}</Text>
+      <TouchableOpacity
+        style={[s.fieldInput, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}
+        onPress={() => setShow(true)}
+      >
+        <Text style={{ color: value ? colors.text : '#9ca3af', fontSize: 14 }}>
+          {value ? fmt(value) : 'Select date'}
+        </Text>
+        <Text style={{ fontSize: 16 }}>📅</Text>
+      </TouchableOpacity>
+      {show && (
+        <DateTimePicker
+          value={dateObj}
+          mode="date"
+          display="default"
+          onChange={(event, selectedDate) => {
+            setShow(false);
+            if (selectedDate) onChange(selectedDate.toISOString().split('T')[0]);
+          }}
+        />
+      )}
+    </View>
+  );
+}
+
+// ── Task card ──────────────────────────────────────────────────────
 
 function StatusBadge({ status, isOverdue }) {
   const label = isOverdue ? 'Overdue' : status;
@@ -34,20 +119,12 @@ function TaskCard({ task, onEdit, onDelete, onComplete, idx }) {
       </View>
 
       <View style={s.taskMeta}>
-        {task.section ? (
-          <View style={s.sectionPill}><Text style={s.sectionPillText}>{task.section}</Text></View>
-        ) : null}
+        {task.section ? <View style={s.sectionPill}><Text style={s.sectionPillText}>{task.section}</Text></View> : null}
         <View style={[s.datePill, task.is_overdue && s.datePillOverdue]}>
-          <Text style={[s.datePillText, task.is_overdue && s.datePillOverdueText]}>
-            📅 {fmt(effTarget)}
-          </Text>
+          <Text style={[s.datePillText, task.is_overdue && s.datePillOverdueText]}>📅 {fmt(effTarget)}</Text>
         </View>
-        {task.no_of_deviations > 0 ? (
-          <View style={s.devPill}><Text style={s.devPillText}>{task.no_of_deviations}x revised</Text></View>
-        ) : null}
-        {task.score !== null && task.score !== undefined ? (
-          <Text style={s.scoreText}>{task.score}/5 ⭐</Text>
-        ) : null}
+        {task.no_of_deviations > 0 ? <View style={s.devPill}><Text style={s.devPillText}>{task.no_of_deviations}x revised</Text></View> : null}
+        {task.score != null ? <Text style={s.scoreText}>{task.score}/5 ⭐</Text> : null}
       </View>
 
       {task.remarks ? <Text style={s.taskRemarks} numberOfLines={1}>{task.remarks}</Text> : null}
@@ -68,6 +145,8 @@ function TaskCard({ task, onEdit, onDelete, onComplete, idx }) {
     </TouchableOpacity>
   );
 }
+
+// ── Task form modal ────────────────────────────────────────────────
 
 const EMPTY_FORM = {
   task_description: '', stakeholder: '', section: '', sheet_name: 'Sheet 1',
@@ -110,90 +189,84 @@ function TaskFormModal({ visible, task, sheetName, sections, stakeholders, onClo
     }
   }
 
-  function Field({ label, field, placeholder, multiline, ...rest }) {
-    return (
-      <View style={s.fieldGroup}>
-        <Text style={s.fieldLabel}>{label}</Text>
-        <TextInput
-          style={[s.fieldInput, multiline && { height: 70, textAlignVertical: 'top' }]}
-          value={form[field]}
-          onChangeText={v => set(field, v)}
-          placeholder={placeholder || ''}
-          placeholderTextColor="#9ca3af"
-          multiline={multiline}
-          {...rest}
-        />
-      </View>
-    );
-  }
-
-  function PickerField({ label, field, options }) {
-    const [open, setOpen] = useState(false);
-    return (
-      <View style={s.fieldGroup}>
-        <Text style={s.fieldLabel}>{label}</Text>
-        <TouchableOpacity style={s.fieldInput} onPress={() => setOpen(true)}>
-          <Text style={{ color: form[field] ? colors.text : '#9ca3af', fontSize: 14 }}>
-            {form[field] || `Select ${label}`}
-          </Text>
-        </TouchableOpacity>
-        <Modal visible={open} transparent animationType="fade">
-          <TouchableOpacity style={s.pickerOverlay} onPress={() => setOpen(false)}>
-            <View style={s.pickerBox}>
-              <Text style={s.pickerTitle}>{label}</Text>
-              <TouchableOpacity style={s.pickerOption} onPress={() => { set(field, ''); setOpen(false); }}>
-                <Text style={{ color: colors.textMuted, fontSize: 14 }}>— None —</Text>
-              </TouchableOpacity>
-              {options.map(opt => (
-                <TouchableOpacity key={opt} style={s.pickerOption} onPress={() => { set(field, opt); setOpen(false); }}>
-                  <Text style={{ fontSize: 14, color: form[field] === opt ? colors.primary : colors.text, fontWeight: form[field] === opt ? '700' : '400' }}>{opt}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </TouchableOpacity>
-        </Modal>
-      </View>
-    );
-  }
-
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }} edges={['top']}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }} edges={['top', 'bottom']}>
         <View style={s.modalHeader}>
           <Text style={s.modalTitle}>{task ? 'Edit Task' : 'New Task'}</Text>
           <TouchableOpacity onPress={onClose}><Text style={s.modalClose}>✕</Text></TouchableOpacity>
         </View>
-        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-          <ScrollView style={s.modalBody} keyboardShouldPersistTaps="handled">
-            <Field label="Task Description *" field="task_description" placeholder="Enter task..." multiline />
-            <PickerField label="Stakeholder" field="stakeholder" options={stakeholders} />
-            <PickerField label="Section" field="section" options={sections} />
+        <ScrollView style={s.modalBody} keyboardShouldPersistTaps="handled">
+          <Field
+            label="Task Description *"
+            value={form.task_description}
+            onChange={v => set('task_description', v)}
+            placeholder="Enter task..."
+            multiline
+          />
+          <PickerField label="Stakeholder" value={form.stakeholder} onChange={v => set('stakeholder', v)} options={stakeholders} />
+          <PickerField label="Section" value={form.section} onChange={v => set('section', v)} options={sections} />
 
-            <Text style={s.divider}>TARGET DATES</Text>
-            <Field label="Initial Target Date" field="initial_target_date" placeholder="YYYY-MM-DD" keyboardType="numeric" />
-            <Field label="Revised Date 1" field="revised_date_1" placeholder="YYYY-MM-DD" keyboardType="numeric" />
-            <Field label="Revised Date 2" field="revised_date_2" placeholder="YYYY-MM-DD" keyboardType="numeric" />
-            <Field label="Revised Date 3" field="revised_date_3" placeholder="YYYY-MM-DD" keyboardType="numeric" />
+          <Text style={s.divider}>TARGET DATES</Text>
+          <DateField label="Initial Target Date" value={form.initial_target_date} onChange={v => set('initial_target_date', v)} />
+          <DateField label="Revised Date 1" value={form.revised_date_1} onChange={v => set('revised_date_1', v)} />
+          <DateField label="Revised Date 2" value={form.revised_date_2} onChange={v => set('revised_date_2', v)} />
+          <DateField label="Revised Date 3" value={form.revised_date_3} onChange={v => set('revised_date_3', v)} />
 
-            <Text style={s.divider}>COMPLETION</Text>
-            <Field label="Completion Date" field="completion_date" placeholder="YYYY-MM-DD" keyboardType="numeric" />
-            <Field label="Remarks" field="remarks" placeholder="Any notes..." multiline />
-
-            <View style={{ height: 40 }} />
-          </ScrollView>
-        </KeyboardAvoidingView>
+          <Text style={s.divider}>COMPLETION</Text>
+          <DateField label="Completion Date" value={form.completion_date} onChange={v => set('completion_date', v)} />
+          <Field label="Remarks" value={form.remarks} onChange={v => set('remarks', v)} placeholder="Any notes..." multiline />
+          <View style={{ height: 20 }} />
+        </ScrollView>
         <View style={s.modalFooter}>
           <TouchableOpacity style={s.cancelBtn} onPress={onClose}>
             <Text style={s.cancelBtnText}>Cancel</Text>
           </TouchableOpacity>
           <TouchableOpacity style={s.saveBtn} onPress={handleSave} disabled={saving}>
-            {saving ? <ActivityIndicator color="#fff" size="small" /> : <Text style={s.saveBtnText}>{task ? 'Update' : 'Create Task'}</Text>}
+            {saving ? <ActivityIndicator color="#fff" size="small" /> : <Text style={s.saveBtnText}>{task ? 'Update Task' : 'Create Task'}</Text>}
           </TouchableOpacity>
         </View>
       </SafeAreaView>
     </Modal>
   );
 }
+
+// ── Filter picker modal ────────────────────────────────────────────
+
+function FilterPicker({ label, value, onChange, options }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <TouchableOpacity
+        style={[s.filterChip, value && s.filterChipActive]}
+        onPress={() => setOpen(true)}
+      >
+        <Text style={[s.filterChipText, value && s.filterChipTextActive]} numberOfLines={1}>
+          {value || label} ▼
+        </Text>
+      </TouchableOpacity>
+      <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
+        <TouchableOpacity style={s.pickerOverlay} activeOpacity={1} onPress={() => setOpen(false)}>
+          <View style={s.pickerBox}>
+            <Text style={s.pickerTitle}>{label}</Text>
+            <ScrollView>
+              <TouchableOpacity style={s.pickerOption} onPress={() => { onChange(''); setOpen(false); }}>
+                <Text style={{ color: colors.textMuted, fontSize: 14 }}>— All —</Text>
+              </TouchableOpacity>
+              {options.map(opt => (
+                <TouchableOpacity key={opt} style={s.pickerOption} onPress={() => { onChange(opt); setOpen(false); }}>
+                  <Text style={{ fontSize: 14, color: value === opt ? colors.primary : colors.text, fontWeight: value === opt ? '700' : '400' }}>{opt}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+    </>
+  );
+}
+
+// ── Main Tasks screen ──────────────────────────────────────────────
 
 export default function TasksScreen({ sheetName }) {
   const [tasks, setTasks] = useState([]);
@@ -203,6 +276,8 @@ export default function TasksScreen({ sheetName }) {
   const [stakeholders, setStakeholders] = useState([]);
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
+  const [filterSection, setFilterSection] = useState('');
+  const [filterPerson, setFilterPerson] = useState('');
   const [modalTask, setModalTask] = useState(undefined);
   const [showModal, setShowModal] = useState(false);
 
@@ -218,13 +293,19 @@ export default function TasksScreen({ sheetName }) {
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
-    api.getSections().then(setSections).catch(() => {});
-    api.getStakeholders().then(setStakeholders).catch(() => {});
+    api.getSections().then(d => setSections(d.map(x => x.name || x))).catch(() => {});
+    api.getStakeholders().then(d => setStakeholders(d.map(x => x.name || x))).catch(() => {});
   }, []);
 
-  const filtered = search
-    ? tasks.filter(t => t.task_description?.toLowerCase().includes(search.toLowerCase()) || t.stakeholder?.toLowerCase().includes(search.toLowerCase()))
-    : tasks;
+  const filtered = tasks.filter(t => {
+    if (filterSection && t.section !== filterSection) return false;
+    if (filterPerson && t.stakeholder !== filterPerson) return false;
+    if (search) {
+      const q = search.toLowerCase();
+      return t.task_description?.toLowerCase().includes(q) || t.stakeholder?.toLowerCase().includes(q);
+    }
+    return true;
+  });
 
   function openNew() { setModalTask(null); setShowModal(true); }
   function openEdit(task) { setModalTask(task); setShowModal(true); }
@@ -244,26 +325,49 @@ export default function TasksScreen({ sheetName }) {
     load();
   }
 
+  async function handleExport() {
+    try {
+      const headers = 'Task,Stakeholder,Section,Sheet,Status,Due Date,Completion Date,Score,Remarks';
+      const rows = filtered.map(t => [
+        `"${(t.task_description || '').replace(/"/g, '""')}"`,
+        `"${(t.stakeholder || '').replace(/"/g, '""')}"`,
+        `"${(t.section || '').replace(/"/g, '""')}"`,
+        `"${(t.sheet_name || '').replace(/"/g, '""')}"`,
+        t.achievement_status || '',
+        t.initial_target_date || '',
+        t.completion_date || '',
+        t.score ?? '',
+        `"${(t.remarks || '').replace(/"/g, '""')}"`,
+      ].join(',')).join('\n');
+      await Share.share({ message: headers + '\n' + rows, title: 'Tasks Export' });
+    } catch (err) {
+      Alert.alert('Export Error', err.message);
+    }
+  }
+
+  const hasFilters = filterSection || filterPerson;
+
   return (
     <SafeAreaView style={s.safe} edges={['bottom']}>
       {/* Top bar */}
       <View style={s.topBar}>
-        <View style={{ flex: 1 }}>
-          <TextInput
-            style={s.searchInput}
-            value={search}
-            onChangeText={setSearch}
-            placeholder="Search tasks..."
-            placeholderTextColor="#9ca3af"
-            clearButtonMode="while-editing"
-          />
-        </View>
+        <TextInput
+          style={s.searchInput}
+          value={search}
+          onChangeText={setSearch}
+          placeholder="Search tasks..."
+          placeholderTextColor="#9ca3af"
+          clearButtonMode="while-editing"
+        />
+        <TouchableOpacity style={s.exportBtn} onPress={handleExport}>
+          <Text style={s.exportBtnText}>⬇ CSV</Text>
+        </TouchableOpacity>
         <TouchableOpacity style={s.addBtn} onPress={openNew}>
           <Text style={s.addBtnText}>+ New</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Filter pills */}
+      {/* Status filter pills */}
       <View style={s.filterRow}>
         {['', 'Pending', 'Completed'].map(f => (
           <TouchableOpacity
@@ -271,12 +375,21 @@ export default function TasksScreen({ sheetName }) {
             style={[s.filterPill, filterStatus === f && s.filterPillActive]}
             onPress={() => setFilterStatus(f)}
           >
-            <Text style={[s.filterPillText, filterStatus === f && s.filterPillTextActive]}>
-              {f || 'All'}
-            </Text>
+            <Text style={[s.filterPillText, filterStatus === f && s.filterPillTextActive]}>{f || 'All'}</Text>
           </TouchableOpacity>
         ))}
         <Text style={s.taskCount}>{filtered.length} tasks</Text>
+      </View>
+
+      {/* Section / Person filters */}
+      <View style={s.filterRow2}>
+        <FilterPicker label="All Sections" value={filterSection} onChange={setFilterSection} options={sections} />
+        <FilterPicker label="All People" value={filterPerson} onChange={setFilterPerson} options={stakeholders} />
+        {hasFilters && (
+          <TouchableOpacity onPress={() => { setFilterSection(''); setFilterPerson(''); }} style={s.clearBtn}>
+            <Text style={s.clearBtnText}>✕ Clear</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       {loading ? (
@@ -289,6 +402,7 @@ export default function TasksScreen({ sheetName }) {
             <TaskCard task={item} idx={index} onEdit={openEdit} onDelete={handleDelete} onComplete={handleComplete} />
           )}
           contentContainerStyle={s.list}
+          keyboardShouldPersistTaps="handled"
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={colors.primary} />}
           ListEmptyComponent={
             <View style={s.empty}>
@@ -320,9 +434,11 @@ const s = StyleSheet.create({
   loader: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   list: { padding: 12, paddingBottom: 32 },
 
-  topBar: { flexDirection: 'row', gap: 10, paddingHorizontal: 12, paddingVertical: 10, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: colors.border, alignItems: 'center' },
-  searchInput: { backgroundColor: '#f3f4f6', borderRadius: radius.sm, padding: 10, fontSize: 14, color: colors.text },
-  addBtn: { backgroundColor: colors.primary, borderRadius: radius.sm, paddingHorizontal: 16, paddingVertical: 10 },
+  topBar: { flexDirection: 'row', gap: 8, paddingHorizontal: 12, paddingVertical: 10, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: colors.border, alignItems: 'center' },
+  searchInput: { flex: 1, backgroundColor: '#f3f4f6', borderRadius: radius.sm, padding: 10, fontSize: 14, color: colors.text },
+  exportBtn: { backgroundColor: '#f3f4f6', borderRadius: radius.sm, paddingHorizontal: 10, paddingVertical: 10, borderWidth: 1, borderColor: colors.border },
+  exportBtnText: { color: colors.textMuted, fontWeight: '600', fontSize: 12 },
+  addBtn: { backgroundColor: colors.primary, borderRadius: radius.sm, paddingHorizontal: 14, paddingVertical: 10 },
   addBtnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
 
   filterRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 12, paddingVertical: 8, alignItems: 'center', backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: colors.border },
@@ -331,6 +447,14 @@ const s = StyleSheet.create({
   filterPillText: { fontSize: 12, fontWeight: '600', color: colors.textMuted },
   filterPillTextActive: { color: colors.primary },
   taskCount: { marginLeft: 'auto', fontSize: 12, color: colors.textMuted, fontWeight: '600' },
+
+  filterRow2: { flexDirection: 'row', gap: 8, paddingHorizontal: 12, paddingVertical: 8, alignItems: 'center', backgroundColor: '#fafafa', borderBottomWidth: 1, borderBottomColor: colors.border },
+  filterChip: { flex: 1, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: '#f3f4f6', borderWidth: 1, borderColor: '#e5e7eb' },
+  filterChipActive: { backgroundColor: '#ede9fe', borderColor: colors.primary },
+  filterChipText: { fontSize: 11, fontWeight: '600', color: colors.textMuted },
+  filterChipTextActive: { color: colors.primary },
+  clearBtn: { paddingHorizontal: 8, paddingVertical: 6 },
+  clearBtnText: { fontSize: 11, color: colors.danger, fontWeight: '600' },
 
   taskCard: { backgroundColor: '#fff', borderRadius: radius.md, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: colors.border, ...shadow.sm },
   taskTop: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 10 },
@@ -369,7 +493,6 @@ const s = StyleSheet.create({
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 80 },
   emptyText: { fontSize: 14, color: colors.textMuted, marginBottom: 16 },
 
-  // Modal
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, borderBottomWidth: 1, borderBottomColor: colors.border },
   modalTitle: { fontSize: 17, fontWeight: '800', color: colors.text },
   modalClose: { fontSize: 18, color: colors.textMuted, padding: 4 },
