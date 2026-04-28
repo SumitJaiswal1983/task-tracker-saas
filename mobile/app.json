@@ -1,0 +1,31 @@
+{
+  "expo": {
+    "name": "Task Delegation Tracker",
+    "slug": "task-delegation-tracker",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#312e81"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.highflow.tasktracker"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#312e81"
+      },
+      "package": "com.highflow.tasktracker",
+      "versionCode": 1
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    }
+  }
+}
