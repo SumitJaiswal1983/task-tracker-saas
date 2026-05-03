@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import * as XLSX from 'xlsx';
 import { api } from '../api';
 import TaskModal from './TaskModal';
 
@@ -22,49 +23,51 @@ function ScoreDisplay({ score }) {
   );
 }
 
-function exportCSV(tasks, sheetName) {
-  const headers = [
-    'S.No', 'Task Description', 'Assigned To', 'Section',
-    'Create Date', 'Initial Target Date',
-    'Revised Date 1', 'Revised Date 2', 'Revised Date 3', 'Revised Date 4', 'Revised Date 5',
-    'No of Deviations', 'Completion Date', 'Remarks', 'Status', 'Score'
+function exportExcel(tasks, sheetName) {
+  const rows = tasks.map((t, i) => ({
+    'S.No': i + 1,
+    'Task Description': t.task_description || '',
+    'Assigned To': t.stakeholder || '',
+    'Section': t.section || '',
+    'Sheet': t.sheet_name || '',
+    'Create Date': fmtCSV(t.create_date),
+    'Initial Target Date': fmtCSV(t.initial_target_date),
+    'Revised Date 1': fmtCSV(t.revised_date_1),
+    'Revised Date 2': fmtCSV(t.revised_date_2),
+    'Revised Date 3': fmtCSV(t.revised_date_3),
+    'Revised Date 4': fmtCSV(t.revised_date_4),
+    'Revised Date 5': fmtCSV(t.revised_date_5),
+    'Deviations': t.no_of_deviations ?? '',
+    'Completion Date': fmtCSV(t.completion_date),
+    'Status': t.achievement_status || '',
+    'Score': t.score != null ? `${t.score}/5` : '',
+    'Overdue': t.is_overdue ? 'Yes' : 'No',
+    'Remarks': t.remarks || '',
+  }));
+
+  const ws = XLSX.utils.json_to_sheet(rows);
+  // Column widths
+  ws['!cols'] = [
+    { wch: 5 }, { wch: 45 }, { wch: 18 }, { wch: 16 }, { wch: 16 },
+    { wch: 14 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 },
+    { wch: 10 }, { wch: 16 }, { wch: 11 }, { wch: 8 }, { wch: 8 }, { wch: 30 },
   ];
-
-  const rows = tasks.map((t, i) => [
-    i + 1,
-    `"${(t.task_description || '').replace(/"/g, '""')}"`,
-    `"${t.stakeholder || ''}"`,
-    `"${t.section || ''}"`,
-    fmtCSV(t.create_date),
-    fmtCSV(t.initial_target_date),
-    fmtCSV(t.revised_date_1),
-    fmtCSV(t.revised_date_2),
-    fmtCSV(t.revised_date_3),
-    fmtCSV(t.revised_date_4),
-    fmtCSV(t.revised_date_5),
-    t.no_of_deviations,
-    fmtCSV(t.completion_date),
-    `"${(t.remarks || '').replace(/"/g, '""')}"`,
-    t.achievement_status,
-    t.score !== null && t.score !== undefined ? `${t.score}/5` : '',
-  ]);
-
-  const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `Tasks_${sheetName.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, sheetName.slice(0, 31));
+  XLSX.writeFile(wb, `Tasks_${sheetName.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.xlsx`);
 }
 
-export default function TaskList({ sheetName }) {
+export default function TaskList({ sheetName, currentUser, initialFilter }) {
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [sections, setSections] = useState([]);
   const [stakeholders, setStakeholders] = useState([]);
-  const [filters, setFilters] = useState({ section: '', stakeholder: '', status: '', search: '' });
+  const [filters, setFilters] = useState({
+    section: '',
+    stakeholder: initialFilter?.stakeholder ?? '',
+    status: initialFilter?.status ?? '',
+    search: '',
+  });
   const [modalTask, setModalTask] = useState(undefined);
   const [showModal, setShowModal] = useState(false);
 
@@ -132,11 +135,11 @@ export default function TaskList({ sheetName }) {
         <div style={{ display: 'flex', gap: 10 }}>
           <button
             className="btn btn-ghost"
-            onClick={() => exportCSV(filtered, sheetName)}
+            onClick={() => exportExcel(filtered, sheetName)}
             disabled={filtered.length === 0}
-            title="Download CSV"
+            title="Download Excel"
           >
-            ⬇ Export CSV
+            ⬇ Excel
           </button>
           <button className="btn btn-primary" onClick={openNew}>+ New Task</button>
         </div>
@@ -153,6 +156,7 @@ export default function TaskList({ sheetName }) {
           <option value="">All Status</option>
           <option value="Pending">Pending</option>
           <option value="Completed">Completed</option>
+          <option value="Overdue">Overdue</option>
         </select>
         <select className="filter-select" value={filters.section} onChange={e => setFilter('section', e.target.value)}>
           <option value="">All Sections</option>
@@ -270,6 +274,7 @@ export default function TaskList({ sheetName }) {
           sheetName={sheetName}
           onClose={closeModal}
           onSaved={onSaved}
+          currentUser={currentUser}
         />
       )}
     </div>

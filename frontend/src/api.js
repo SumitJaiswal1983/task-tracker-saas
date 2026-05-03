@@ -34,6 +34,8 @@ export const api = {
     req('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
   signup: (data) =>
     req('/auth/signup', { method: 'POST', body: JSON.stringify(data) }),
+  googleAuth: (credential, company_name) =>
+    req('/auth/google', { method: 'POST', body: JSON.stringify({ credential, company_name }) }),
   me: () => req('/auth/me'),
 
   getCompanies: () => req('/admin/companies'),

@@ -401,6 +401,63 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
+app.post('/api/auth/google', async (req, res) => {
+  try {
+    const { credential, company_name } = req.body;
+    if (!credential) return res.status(400).json({ error: 'Google credential required' });
+
+    // Verify Google ID token via tokeninfo
+    const tokenRes = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${credential}`);
+    const payload = await tokenRes.json();
+    if (payload.error || !payload.email) return res.status(400).json({ error: 'Invalid Google token' });
+
+    const clientId = process.env.GOOGLE_CLIENT_ID;
+    if (clientId && payload.aud !== clientId) return res.status(400).json({ error: 'Token audience mismatch' });
+
+    const email = payload.email.toLowerCase();
+    const name = payload.name || email.split('@')[0];
+
+    // Find existing user
+    const { rows } = await pool.query('SELECT * FROM tt_users WHERE email=$1', [email]);
+    const existing = rows[0];
+
+    if (!existing) {
+      if (!company_name?.trim()) {
+        // New user — ask for company name
+        return res.json({ needs_company: true, email, name });
+      }
+      // Create company + admin user
+      const { rows: compRows } = await pool.query(
+        'INSERT INTO tt_companies (name, email) VALUES ($1,$2) RETURNING *',
+        [company_name.trim(), email]
+      );
+      const company = compRows[0];
+      for (const section of DEFAULT_SECTIONS) {
+        await pool.query('INSERT INTO tt_sections (company_id,name) VALUES ($1,$2) ON CONFLICT DO NOTHING', [company.id, section]);
+      }
+      const hash = await bcrypt.hash(crypto.randomBytes(24).toString('hex'), 8);
+      const { rows: uRows } = await pool.query(
+        `INSERT INTO tt_users (company_id,name,email,password,role) VALUES ($1,$2,$3,$4,'admin') RETURNING id,name,email,role`,
+        [company.id, name, email, hash]
+      );
+      const user = uRows[0];
+      const token = jwt.sign({ id: user.id, email, name: user.name, role: 'admin', company_id: company.id }, JWT_SECRET, { expiresIn: '7d' });
+      return res.json({ token, user, company: trialInfo(company) });
+    }
+
+    // Existing user — log in
+    let company = null;
+    if (existing.company_id) {
+      const { rows: cRows } = await pool.query('SELECT * FROM tt_companies WHERE id=$1', [existing.company_id]);
+      company = cRows[0] ? trialInfo(cRows[0]) : null;
+    }
+    const token = jwt.sign({ id: existing.id, email, name: existing.name, role: existing.role, company_id: existing.company_id || null }, JWT_SECRET, { expiresIn: '7d' });
+    res.json({ token, user: { id: existing.id, name: existing.name, email, role: existing.role }, company });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/auth/me', auth, async (req, res) => {
   try {
     const { rows } = await pool.query('SELECT id,name,email,role,created_at FROM tt_users WHERE id=$1', [req.user.id]);
@@ -426,9 +483,12 @@ app.get('/api/auth/me', auth, async (req, res) => {
 app.get('/api/admin/companies', auth, superAdminOnly, async (req, res) => {
   try {
     const { rows } = await pool.query(`
-      SELECT c.*, COUNT(u.id) as user_count
+      SELECT c.*,
+        COUNT(DISTINCT u.id) as user_count,
+        COUNT(DISTINCT t.id) as task_count
       FROM tt_companies c
       LEFT JOIN tt_users u ON u.company_id = c.id
+      LEFT JOIN tt_tasks t ON t.company_id = c.id
       GROUP BY c.id ORDER BY c.created_at DESC
     `);
     const companies = rows.map(c => ({ ...c, ...trialInfo(c) }));
@@ -440,11 +500,18 @@ app.get('/api/admin/companies', auth, superAdminOnly, async (req, res) => {
 
 app.put('/api/admin/companies/:id', auth, superAdminOnly, async (req, res) => {
   try {
-    const { is_paid, plan } = req.body;
-    const { rows } = await pool.query(
-      `UPDATE tt_companies SET is_paid=$1, plan=$2 WHERE id=$3 RETURNING *`,
-      [is_paid, plan || 'monthly', req.params.id]
-    );
+    const { is_paid, plan, extend_trial_days } = req.body;
+    let updateQuery, params;
+    if (extend_trial_days) {
+      updateQuery = `UPDATE tt_companies SET trial_start_date = NOW() - INTERVAL '${30 - parseInt(extend_trial_days)} days' WHERE id=$1 RETURNING *`;
+      params = [req.params.id];
+    } else {
+      const planConfig = PLANS[plan] || PLANS.starter;
+      const paid_until = is_paid ? new Date(Date.now() + planConfig.days * 24 * 60 * 60 * 1000) : null;
+      updateQuery = `UPDATE tt_companies SET is_paid=$1, plan=$2, paid_until=$3 WHERE id=$4 RETURNING *`;
+      params = [is_paid, plan || 'starter', paid_until, req.params.id];
+    }
+    const { rows } = await pool.query(updateQuery, params);
     if (!rows[0]) return res.status(404).json({ error: 'Company not found' });
     res.json({ ...rows[0], ...trialInfo(rows[0]) });
   } catch (err) {
