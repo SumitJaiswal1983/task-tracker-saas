@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { api } from '../api';
 
-const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+const GOOGLE_CLIENT_ID = '785722511551-itug55i0bpmip3gktogi4ni7e8evl86s.apps.googleusercontent.com';
 
 export default function Signup({ onSignup, onBack }) {
   const [form, setForm] = useState({ company_name: '', name: '', email: '', password: '' });
