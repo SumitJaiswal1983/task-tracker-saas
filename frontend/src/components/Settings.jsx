@@ -17,19 +17,57 @@ const HOURS = Array.from({ length: 24 }, (_, i) => {
   return { value: i, label: `${h}:00 ${ampm}` };
 });
 
+const PLANS = [
+  {
+    key: 'basic', yearlyKey: 'basic_yr',
+    label: 'Basic',
+    price: 199, yearlyPrice: 2149, effectiveMonthly: 179,
+    wa: 300, waYearly: 3600,
+    color: '#6b7280', accent: '#f9fafb',
+  },
+  {
+    key: 'starter', yearlyKey: 'starter_yr',
+    label: 'Starter',
+    price: 299, yearlyPrice: 3229, effectiveMonthly: 269,
+    wa: 500, waYearly: 6000,
+    color: '#4f46e5', accent: '#f5f3ff',
+    popular: true,
+  },
+  {
+    key: 'growth', yearlyKey: 'growth_yr',
+    label: 'Growth',
+    price: 599, yearlyPrice: 6469, effectiveMonthly: 539,
+    wa: 1000, waYearly: 12000,
+    color: '#0891b2', accent: '#ecfeff',
+  },
+];
+
 const PLAN_LABELS = {
   trial:      'Trial',
-  basic:      'Basic (₹199/mo · 300 WA)',
-  starter:    'Starter (₹299/mo · 500 WA)',
-  growth:     'Growth (₹1,000/mo · 1,500 WA)',
-  pro:        'Pro (₹2,000/mo · 3,000 WA)',
-  basic_yr:   'Basic Yearly (₹2,149/yr · 3,600 WA)',
-  starter_yr: 'Starter Yearly (₹3,229/yr · 6,000 WA)',
-  growth_yr:  'Growth Yearly (₹10,800/yr · 18,000 WA)',
-  pro_yr:     'Pro Yearly (₹21,600/yr · 36,000 WA)',
-  monthly:    'Starter (₹299/mo · 500 WA)',
-  yearly:     'Legacy Yearly (₹6,999/yr)',
+  basic:      'Basic · 300 WA/mo',
+  starter:    'Starter · 500 WA/mo',
+  growth:     'Growth · 1,000 WA/mo',
+  basic_yr:   'Basic Yearly · 300 WA/mo',
+  starter_yr: 'Starter Yearly · 500 WA/mo',
+  growth_yr:  'Growth Yearly · 1,000 WA/mo',
+  monthly:    'Starter · 500 WA/mo',
+  yearly:     'Legacy Yearly',
 };
+
+function fmt(n) {
+  return n >= 1000 ? `₹${(n / 1000).toFixed(n % 1000 === 0 ? 0 : 1)}K` : `₹${n}`;
+}
+
+function loadRazorpay() {
+  return new Promise(resolve => {
+    if (window.Razorpay) return resolve(true);
+    const s = document.createElement('script');
+    s.src = 'https://checkout.razorpay.com/v1/checkout.js';
+    s.onload = () => resolve(true);
+    s.onerror = () => resolve(false);
+    document.body.appendChild(s);
+  });
+}
 
 function UsageBar({ used, limit, label, color = '#312e81' }) {
   const pct = limit === -1 ? 0 : limit === 0 ? 0 : Math.min(100, Math.round((used / limit) * 100));
@@ -54,18 +92,19 @@ function UsageBar({ used, limit, label, color = '#312e81' }) {
   );
 }
 
-export default function Settings({ company, onCompanyUpdate }) {
-  const [settings, setSettings] = useState(null);
+export default function Settings({ company, onCompanyUpdate, user }) {
   const [notifyHour, setNotifyHour] = useState(9);
   const [notifyDays, setNotifyDays] = useState(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [error, setError] = useState('');
+  const [scheduleError, setScheduleError] = useState('');
+  const [yearly, setYearly] = useState(false);
+  const [payLoading, setPayLoading] = useState(null);
+  const [payError, setPayError] = useState('');
 
   useEffect(() => {
     api.getSettings().then(s => {
       if (s) {
-        setSettings(s);
         setNotifyHour(s.notify_hour ?? 9);
         setNotifyDays((s.notify_days || 'mon,tue,wed,thu,fri,sat,sun').split(',').map(d => d.trim()));
       }
@@ -79,15 +118,53 @@ export default function Settings({ company, onCompanyUpdate }) {
   }
 
   async function handleSave() {
-    if (notifyDays.length === 0) { setError('Select at least one day'); return; }
-    setSaving(true); setError(''); setSaved(false);
+    if (notifyDays.length === 0) { setScheduleError('Select at least one day'); return; }
+    setSaving(true); setScheduleError(''); setSaved(false);
     try {
       await api.saveSettings({ notify_hour: notifyHour, notify_days: notifyDays.join(',') });
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
     } catch (err) {
-      setError(err.message);
+      setScheduleError(err.message);
     } finally { setSaving(false); }
+  }
+
+  async function handlePay(planKey) {
+    setPayLoading(planKey); setPayError('');
+    try {
+      const loaded = await loadRazorpay();
+      if (!loaded) throw new Error('Payment gateway failed to load.');
+      const order = await api.createPaymentOrder(planKey);
+      if (!order) return;
+      const options = {
+        key: order.key_id,
+        amount: order.amount,
+        currency: order.currency,
+        name: 'Task Delegation Tracker',
+        description: order.plan_label,
+        order_id: order.order_id,
+        prefill: { name: user?.name || '', email: user?.email || '' },
+        theme: { color: '#4f46e5' },
+        handler: async function (response) {
+          try {
+            const result = await api.verifyPayment({
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_signature: response.razorpay_signature,
+              plan: planKey,
+            });
+            if (result?.success) {
+              localStorage.setItem('tt_company', JSON.stringify(result.company));
+              onCompanyUpdate(result.company);
+            }
+          } catch { setPayError('Payment verification failed. Contact support.'); }
+        },
+        modal: { ondismiss: () => setPayLoading(null) },
+      };
+      const rzp = new window.Razorpay(options);
+      rzp.on('payment.failed', () => { setPayError('Payment failed. Try again.'); setPayLoading(null); });
+      rzp.open();
+    } catch (err) { setPayError(err.message); setPayLoading(null); }
   }
 
   const isPaid = company?.subscription_active;
@@ -99,9 +176,9 @@ export default function Settings({ company, onCompanyUpdate }) {
   const maxTasks = company?.max_tasks ?? 200;
 
   return (
-    <div style={{ maxWidth: 680, margin: '0 auto', padding: '24px 16px' }}>
+    <div style={{ maxWidth: 740, margin: '0 auto', padding: '24px 16px' }}>
 
-      {/* Plan & Limits */}
+      {/* Plan & Usage */}
       <div className="card" style={{ marginBottom: 24 }}>
         <div className="card-header">
           <h3 className="card-title">Plan & Usage</h3>
@@ -118,42 +195,122 @@ export default function Settings({ company, onCompanyUpdate }) {
               Trial limits: {maxUsers} users · {maxStakeholders} stakeholders · {maxTasks} tasks · {waLimit} WA messages/month
             </div>
           )}
+
           <UsageBar used={waSent} limit={waLimit} label="WhatsApp Messages (this month)" color="#25d366" />
-          {!isPaid && (
-            <>
-              <div style={{ borderTop: '1px solid #f3f4f6', paddingTop: 14, marginTop: 4 }}>
-                <p style={{ fontSize: 12, color: '#666', marginBottom: 12 }}>
-                  Upgrade for unlimited users, tasks & stakeholders + more WA messages/month:
-                </p>
-                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                  {[
-                    { plan: 'basic',   label: '₹199/mo',    sub: '300 WA/mo' },
-                    { plan: 'starter', label: '₹299/mo',    sub: '500 WA/mo', highlight: true },
-                    { plan: 'growth',  label: '₹1,000/mo',  sub: '1,500 WA/mo' },
-                    { plan: 'pro',     label: '₹2,000/mo',  sub: '3,000 WA/mo' },
-                    { plan: 'pro_yr',  label: '₹21,600/yr', sub: '36,000 WA/yr — 10% off' },
-                  ].map(p => (
-                    <div key={p.plan} style={{
-                      border: `2px solid ${p.highlight ? '#312e81' : '#e5e7eb'}`,
-                      borderRadius: 10, padding: '10px 14px', minWidth: 120, textAlign: 'center',
-                      background: p.highlight ? '#f5f3ff' : '#fff',
-                    }}>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: '#312e81' }}>{p.label}</div>
-                      <div style={{ fontSize: 11, color: '#666', marginTop: 2 }}>{p.sub}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </>
-          )}
+
           {isPaid && (
             <div style={{ fontSize: 13, color: '#555', marginTop: 4 }}>
-              Unlimited users, stakeholders & tasks. WA messages: {waLimit === -1 ? 'Unlimited' : `${waLimit}/month`}.
+              Unlimited users, stakeholders & tasks.
               {company?.paid_until && (
                 <span style={{ marginLeft: 8, color: '#312e81', fontWeight: 600 }}>
                   Renews: {new Date(company.paid_until).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
                 </span>
               )}
+            </div>
+          )}
+
+          {!isPaid && (
+            <div style={{ borderTop: '1px solid #f3f4f6', paddingTop: 20, marginTop: 8 }}>
+              {/* Header row with toggle */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+                <p style={{ fontSize: 14, fontWeight: 700, color: '#111827' }}>
+                  Choose a plan
+                </p>
+                <div style={{ display: 'inline-flex', background: '#f3f4f6', borderRadius: 8, padding: 3 }}>
+                  <button onClick={() => setYearly(false)} style={{
+                    padding: '5px 16px', borderRadius: 6, border: 'none', fontWeight: 700, fontSize: 12, cursor: 'pointer',
+                    background: !yearly ? '#fff' : 'transparent', color: !yearly ? '#312e81' : '#9ca3af',
+                    boxShadow: !yearly ? '0 1px 3px rgba(0,0,0,0.1)' : 'none', transition: 'all 0.15s',
+                  }}>Monthly</button>
+                  <button onClick={() => setYearly(true)} style={{
+                    padding: '5px 16px', borderRadius: 6, border: 'none', fontWeight: 700, fontSize: 12, cursor: 'pointer',
+                    background: yearly ? '#fff' : 'transparent', color: yearly ? '#16a34a' : '#9ca3af',
+                    boxShadow: yearly ? '0 1px 3px rgba(0,0,0,0.1)' : 'none', transition: 'all 0.15s',
+                    display: 'flex', alignItems: 'center', gap: 5,
+                  }}>
+                    Yearly
+                    <span style={{ fontSize: 9, fontWeight: 800, color: '#16a34a', background: '#dcfce7', padding: '1px 5px', borderRadius: 8 }}>10% OFF</span>
+                  </button>
+                </div>
+              </div>
+
+              {payError && <div className="auth-error" style={{ marginBottom: 14 }}>{payError}</div>}
+
+              {/* 3 plan cards */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 14 }}>
+                {PLANS.map(p => {
+                  const planKey = yearly ? p.yearlyKey : p.key;
+                  const isLoadingThis = payLoading === planKey;
+                  const disabled = payLoading !== null;
+                  return (
+                    <div key={p.key} onClick={() => !disabled && handlePay(planKey)} style={{
+                      position: 'relative',
+                      border: `2px solid ${p.popular ? p.color : '#e5e7eb'}`,
+                      borderRadius: 16,
+                      padding: '20px 16px 16px',
+                      background: p.popular ? p.accent : '#fff',
+                      cursor: disabled ? 'not-allowed' : 'pointer',
+                      boxShadow: p.popular ? `0 6px 24px ${p.color}22` : '0 1px 4px rgba(0,0,0,0.05)',
+                      transition: 'transform 0.15s, box-shadow 0.15s',
+                    }}
+                      onMouseEnter={e => { if (!disabled) { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = p.popular ? `0 10px 30px ${p.color}33` : '0 4px 12px rgba(0,0,0,0.1)'; } }}
+                      onMouseLeave={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = p.popular ? `0 6px 24px ${p.color}22` : '0 1px 4px rgba(0,0,0,0.05)'; }}
+                    >
+                      {p.popular && (
+                        <div style={{
+                          position: 'absolute', top: -11, left: '50%', transform: 'translateX(-50%)',
+                          background: p.color, color: '#fff', fontSize: 9, fontWeight: 800,
+                          padding: '2px 12px', borderRadius: 20, whiteSpace: 'nowrap', letterSpacing: 0.8,
+                        }}>POPULAR</div>
+                      )}
+
+                      <div style={{ fontSize: 10, fontWeight: 800, color: p.color, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 10 }}>
+                        {p.label}
+                      </div>
+
+                      {yearly ? (
+                        <>
+                          <div style={{ fontSize: 24, fontWeight: 800, color: '#111827', lineHeight: 1.1 }}>
+                            {fmt(p.yearlyPrice)}
+                            <span style={{ fontSize: 11, fontWeight: 400, color: '#9ca3af' }}>/yr</span>
+                          </div>
+                          <div style={{ fontSize: 11, color: '#6b7280', marginTop: 3 }}>
+                            ≈ {fmt(p.effectiveMonthly)}/mo &nbsp;
+                            <span style={{ color: '#16a34a', fontWeight: 700 }}>save 10%</span>
+                          </div>
+                        </>
+                      ) : (
+                        <div style={{ fontSize: 24, fontWeight: 800, color: '#111827', lineHeight: 1.1 }}>
+                          {fmt(p.price)}
+                          <span style={{ fontSize: 11, fontWeight: 400, color: '#9ca3af' }}>/mo</span>
+                        </div>
+                      )}
+
+                      <div style={{ fontSize: 12, color: '#4b5563', margin: '10px 0 16px', display: 'flex', alignItems: 'center', gap: 5 }}>
+                        <span>💬</span>
+                        {(yearly ? p.waYearly : p.wa).toLocaleString('en-IN')} WA/{yearly ? 'yr' : 'mo'}
+                      </div>
+
+                      <button
+                        onClick={e => { e.stopPropagation(); if (!disabled) handlePay(planKey); }}
+                        disabled={disabled}
+                        style={{
+                          width: '100%', padding: '10px 0', borderRadius: 10, border: 'none',
+                          background: p.color, color: '#fff', fontWeight: 700, fontSize: 12,
+                          cursor: disabled ? 'not-allowed' : 'pointer',
+                          opacity: disabled && !isLoadingThis ? 0.5 : 1,
+                        }}
+                      >
+                        {isLoadingThis ? 'Opening…' : `Pay ${yearly ? fmt(p.yearlyPrice) : fmt(p.price)}`}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <p style={{ fontSize: 11, color: '#9ca3af', marginTop: 14, textAlign: 'center' }}>
+                All plans include unlimited tasks · users · stakeholders · Secure payments via Razorpay
+              </p>
             </div>
           )}
         </div>
@@ -204,7 +361,7 @@ export default function Settings({ company, onCompanyUpdate }) {
               </div>
             </div>
 
-            {error && <div className="form-error">{error}</div>}
+            {scheduleError && <div className="form-error">{scheduleError}</div>}
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <button className="btn btn-primary" onClick={handleSave} disabled={saving}>

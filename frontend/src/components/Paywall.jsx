@@ -31,16 +31,9 @@ const PLANS = [
   {
     key: 'growth',    yearlyKey: 'growth_yr',
     label: 'Growth',
-    price: 1000,      yearlyPrice: 10800,  effectiveMonthly: 900,
-    wa: 1500,         waYearly: 18000,
+    price: 599,       yearlyPrice: 6469,   effectiveMonthly: 539,
+    wa: 1000,         waYearly: 12000,
     color: '#0891b2', border: '#0891b2',
-  },
-  {
-    key: 'pro',       yearlyKey: 'pro_yr',
-    label: 'Pro',
-    price: 2000,      yearlyPrice: 21600,  effectiveMonthly: 1800,
-    wa: 3000,         waYearly: 36000,
-    color: '#7c3aed', border: '#7c3aed',
   },
 ];
 
@@ -127,7 +120,7 @@ export default function Paywall({ company, user, onPaymentSuccess, onLogout }) {
         </div>
 
         {/* Plans grid */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 12, marginBottom: 20 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12, marginBottom: 20 }}>
           {PLANS.map(p => {
             const planKey = yearly ? p.yearlyKey : p.key;
             const isLoading = loading === planKey;

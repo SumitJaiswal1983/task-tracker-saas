@@ -20,7 +20,7 @@ export default function TrialBanner({ company }) {
         ? 'Your trial expires today.'
         : `Free trial: ${days} day${days === 1 ? '' : 's'} remaining.`}
       {' '}
-      <span style={{ opacity: 0.85 }}>Upgrade from ₹799/month to continue.</span>
+      <span style={{ opacity: 0.85 }}>Upgrade now to continue.</span>
     </div>
   );
 }

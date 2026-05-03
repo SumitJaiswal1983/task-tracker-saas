@@ -34,13 +34,11 @@ const PLANS = {
   // Monthly
   basic:      { amount: 19900,   label: '₹199/month',   days: 30,  wa_limit: 300  },
   starter:    { amount: 29900,   label: '₹299/month',   days: 30,  wa_limit: 500  },
-  growth:     { amount: 100000,  label: '₹1,000/month', days: 30,  wa_limit: 1500 },
-  pro:        { amount: 200000,  label: '₹2,000/month', days: 30,  wa_limit: 3000 },
-  // Yearly (10% off, 12× WA allowance)
-  basic_yr:   { amount: 214900,  label: '₹2,149/year',  days: 365, wa_limit: 3600  }, // 199×12×0.9
-  starter_yr: { amount: 322900,  label: '₹3,229/year',  days: 365, wa_limit: 6000  }, // 299×12×0.9
-  growth_yr:  { amount: 1080000, label: '₹10,800/year', days: 365, wa_limit: 18000 }, // 1000×12×0.9
-  pro_yr:     { amount: 2160000, label: '₹21,600/year', days: 365, wa_limit: 36000 }, // 2000×12×0.9
+  growth:     { amount: 59900,   label: '₹599/month',   days: 30,  wa_limit: 1000 },
+  // Yearly (10% off)
+  basic_yr:   { amount: 214900,  label: '₹2,149/year',  days: 365, wa_limit: 300  }, // 199×12×0.9
+  starter_yr: { amount: 322900,  label: '₹3,229/year',  days: 365, wa_limit: 500  }, // 299×12×0.9
+  growth_yr:  { amount: 646900,  label: '₹6,469/year',  days: 365, wa_limit: 1000 }, // 599×12×0.9
   // Legacy aliases (existing customers)
   monthly:    { amount: 29900,   label: '₹299/month',   days: 30,  wa_limit: 500  },
   yearly:     { amount: 699900,  label: '₹6,999/year',  days: 365, wa_limit: 6000 },

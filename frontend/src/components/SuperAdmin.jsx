@@ -2,14 +2,12 @@ import { useState, useEffect } from 'react';
 import { api } from '../api';
 
 const PLAN_OPTIONS = [
-  { value: 'basic',      label: '₹199/mo · 300 WA' },
-  { value: 'starter',   label: '₹299/mo · 500 WA' },
-  { value: 'growth',    label: '₹1,000/mo · 1,500 WA' },
-  { value: 'pro',       label: '₹2,000/mo · 3,000 WA' },
-  { value: 'basic_yr',  label: '₹2,149/yr · 3,600 WA' },
-  { value: 'starter_yr',label: '₹3,229/yr · 6,000 WA' },
-  { value: 'growth_yr', label: '₹10,800/yr · 18,000 WA' },
-  { value: 'pro_yr',    label: '₹21,600/yr · 36,000 WA' },
+  { value: 'basic',       label: '₹199/mo · 300 WA' },
+  { value: 'starter',    label: '₹299/mo · 500 WA' },
+  { value: 'growth',     label: '₹599/mo · 1,000 WA' },
+  { value: 'basic_yr',   label: '₹2,149/yr · 3,600 WA' },
+  { value: 'starter_yr', label: '₹3,229/yr · 6,000 WA' },
+  { value: 'growth_yr',  label: '₹6,469/yr · 12,000 WA' },
 ];
 
 function StatusBadge({ c }) {

@@ -183,7 +183,7 @@ export default function App() {
         {!isSuperAdmin && tab === 'tasks' && <TaskList sheetName={sheet} currentUser={user} initialFilter={taskFilter} />}
         {!isSuperAdmin && tab === 'people' && user.role === 'admin' && <PeopleAndSections company={company} />}
         {!isSuperAdmin && tab === 'users' && user.role === 'admin' && <Users currentUser={user} company={company} />}
-        {!isSuperAdmin && tab === 'settings' && user.role === 'admin' && <Settings company={company} onCompanyUpdate={setCompany} />}
+        {!isSuperAdmin && tab === 'settings' && user.role === 'admin' && <Settings company={company} onCompanyUpdate={setCompany} user={user} />}
       </main>
     </>
   );
