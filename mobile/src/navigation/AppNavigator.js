@@ -49,6 +49,7 @@ function HeaderRight({ sheet, setSheet }) {
 
 export default function AppNavigator({ user, company, onLogout }) {
   const [sheet, setSheet] = useState('Sheet 1');
+  const [taskFilter, setTaskFilter] = useState(null);
   const insets = useSafeAreaInsets();
   const isAdmin = user?.role === 'admin' || user?.role === 'superadmin';
 
@@ -87,7 +88,12 @@ export default function AppNavigator({ user, company, onLogout }) {
           tabBarIcon: ({ focused }) => <TabIcon icon="📊" label="Home" focused={focused} />,
         }}
       >
-        {() => <DashboardScreen currentUser={user} sheetName={sheet} />}
+        {(props) => <DashboardScreen
+          {...props}
+          currentUser={user}
+          sheetName={sheet}
+          onNavigateToTasks={(filter) => { setTaskFilter(filter); props.navigation.navigate('Tasks'); }}
+        />}
       </Tab.Screen>
 
       <Tab.Screen
@@ -99,7 +105,7 @@ export default function AppNavigator({ user, company, onLogout }) {
           tabBarIcon: ({ focused }) => <TabIcon icon="📋" label="Tasks" focused={focused} />,
         }}
       >
-        {() => <TasksScreen sheetName={sheet} />}
+        {(props) => <TasksScreen {...props} sheetName={sheet} taskFilter={taskFilter} />}
       </Tab.Screen>
 
       {isAdmin && (

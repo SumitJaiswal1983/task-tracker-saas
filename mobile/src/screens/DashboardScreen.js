@@ -7,16 +7,17 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, shadow, radius } from '../theme';
 import { api } from '../api';
 
-function StatCard({ icon, label, value, sub, color, bgColor }) {
+function StatCard({ icon, label, value, sub, color, bgColor, onPress }) {
+  const Container = onPress ? TouchableOpacity : View;
   return (
-    <View style={[s.statCard, shadow.sm]}>
+    <Container style={[s.statCard, shadow.sm]} onPress={onPress} activeOpacity={0.7}>
       <View style={[s.statIcon, { backgroundColor: bgColor }]}>
         <Text style={{ fontSize: 16 }}>{icon}</Text>
       </View>
       <Text style={s.statLabel}>{label}</Text>
       <Text style={[s.statValue, { color }]}>{value}</Text>
       {sub ? <Text style={s.statSub}>{sub}</Text> : null}
-    </View>
+    </Container>
   );
 }
 
@@ -28,7 +29,7 @@ function ProgressBar({ pct, color = colors.primary }) {
   );
 }
 
-export default function DashboardScreen({ currentUser, sheetName }) {
+export default function DashboardScreen({ currentUser, sheetName, onNavigateToTasks }) {
   const [stats, setStats] = useState(null);
   const [weeklyScores, setWeeklyScores] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -87,10 +88,10 @@ export default function DashboardScreen({ currentUser, sheetName }) {
 
         {/* Stat Cards */}
         <View style={s.statGrid}>
-          <StatCard icon="📋" label="Total" value={stats.total} color={colors.blue} bgColor={colors.blueLight} />
-          <StatCard icon="✅" label="Completed" value={stats.completed} sub={`${completionPct}%`} color={colors.green} bgColor={colors.greenLight} />
-          <StatCard icon="⏳" label="Pending" value={stats.pending} color={colors.orange} bgColor={colors.orangeLight} />
-          <StatCard icon="🔴" label="Overdue" value={stats.overdue} sub={stats.overdue > 0 ? 'Action needed' : 'On track'} color={colors.red} bgColor={colors.redLight} />
+          <StatCard icon="📋" label="Total" value={stats.total} color={colors.blue} bgColor={colors.blueLight} onPress={() => onNavigateToTasks?.({ status: '', stakeholder: '' })} />
+          <StatCard icon="✅" label="Completed" value={stats.completed} sub={`${completionPct}%`} color={colors.green} bgColor={colors.greenLight} onPress={() => onNavigateToTasks?.({ status: 'Completed', stakeholder: '' })} />
+          <StatCard icon="⏳" label="Pending" value={stats.pending} color={colors.orange} bgColor={colors.orangeLight} onPress={() => onNavigateToTasks?.({ status: 'Pending', stakeholder: '' })} />
+          <StatCard icon="🔴" label="Overdue" value={stats.overdue} sub={stats.overdue > 0 ? 'Action needed' : 'On track'} color={colors.red} bgColor={colors.redLight} onPress={() => onNavigateToTasks?.({ status: 'Overdue', stakeholder: '' })} />
           <StatCard icon="⭐" label="Avg Score" value={stats.avgScore || '—'} sub="out of 5.0" color={colors.purple} bgColor={colors.purpleLight} />
         </View>
 
@@ -117,11 +118,17 @@ export default function DashboardScreen({ currentUser, sheetName }) {
             </View>
             {stats.stakeholderStats.map((st, i) => (
               <View key={st.name} style={[s.tableRow, i === stats.stakeholderStats.length - 1 && { borderBottomWidth: 0 }]}>
-                <Text style={s.rowName} numberOfLines={1}>{st.name}</Text>
+                <TouchableOpacity onPress={() => onNavigateToTasks?.({ stakeholder: st.name, status: '' })} style={{ flex: 1 }}>
+                  <Text style={[s.rowName, { color: colors.primary }]} numberOfLines={1}>{st.name}</Text>
+                </TouchableOpacity>
                 <View style={s.rowStats}>
                   <Text style={s.rowStatNum}>{st.total}</Text>
-                  <Text style={[s.rowStatNum, { color: colors.success }]}>{st.completed}</Text>
-                  <Text style={[s.rowStatNum, { color: st.pending > 0 ? colors.warning : colors.textMuted }]}>{st.pending}</Text>
+                  <TouchableOpacity onPress={() => onNavigateToTasks?.({ stakeholder: st.name, status: 'Completed' })}>
+                    <Text style={[s.rowStatNum, { color: colors.success }]}>{st.completed}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => st.pending > 0 && onNavigateToTasks?.({ stakeholder: st.name, status: 'Pending' })}>
+                    <Text style={[s.rowStatNum, { color: st.pending > 0 ? colors.warning : colors.textMuted }]}>{st.pending}</Text>
+                  </TouchableOpacity>
                   <Text style={[s.rowScore, {
                     color: st.avgScore === '-' ? '#ccc' : st.avgScore >= 4 ? colors.success : st.avgScore >= 3 ? colors.warning : colors.danger
                   }]}>

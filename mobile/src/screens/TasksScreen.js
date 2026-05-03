@@ -65,27 +65,36 @@ function PickerField({ label, value, onChange, options }) {
   );
 }
 
-function DateField({ label, value, onChange }) {
+function DateField({ label, value, onChange, maxToday }) {
   const [show, setShow] = useState(false);
-  const dateObj = value ? new Date(value + 'T12:00:00') : new Date();
+  const today = new Date();
+  const dateObj = value ? new Date(value + 'T12:00:00') : today;
 
   return (
     <View style={s.fieldGroup}>
       <Text style={s.fieldLabel}>{label}</Text>
-      <TouchableOpacity
-        style={[s.fieldInput, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}
-        onPress={() => setShow(true)}
-      >
-        <Text style={{ color: value ? colors.text : '#9ca3af', fontSize: 14 }}>
-          {value ? fmt(value) : 'Select date'}
-        </Text>
-        <Text style={{ fontSize: 16 }}>📅</Text>
-      </TouchableOpacity>
+      <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+        <TouchableOpacity
+          style={[s.fieldInput, { flex: 1, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}
+          onPress={() => setShow(true)}
+        >
+          <Text style={{ color: value ? colors.text : '#9ca3af', fontSize: 14 }}>
+            {value ? fmt(value) : 'Select date'}
+          </Text>
+          <Text style={{ fontSize: 16 }}>📅</Text>
+        </TouchableOpacity>
+        {value ? (
+          <TouchableOpacity onPress={() => onChange('')} style={{ padding: 10, backgroundColor: '#f3f4f6', borderRadius: 8 }}>
+            <Text style={{ color: colors.textMuted, fontSize: 14 }}>✕</Text>
+          </TouchableOpacity>
+        ) : null}
+      </View>
       {show && (
         <DateTimePicker
           value={dateObj}
           mode="date"
           display="default"
+          maximumDate={maxToday ? today : undefined}
           onChange={(event, selectedDate) => {
             setShow(false);
             if (selectedDate) onChange(selectedDate.toISOString().split('T')[0]);
@@ -153,9 +162,139 @@ const EMPTY_FORM = {
   create_date: new Date().toISOString().split('T')[0], initial_target_date: '',
   revised_date_1: '', revised_date_2: '', revised_date_3: '',
   revised_date_4: '', revised_date_5: '', completion_date: '', remarks: '',
+  is_recurring: false, recur_interval: 'weekly',
 };
 
+function SubtasksTab({ taskId }) {
+  const [subtasks, setSubtasks] = useState([]);
+  const [newDesc, setNewDesc] = useState('');
+  const [adding, setAdding] = useState(false);
+
+  useEffect(() => {
+    api.getSubtasks(taskId).then(setSubtasks).catch(() => {});
+  }, [taskId]);
+
+  async function add() {
+    if (!newDesc.trim()) return;
+    setAdding(true);
+    try {
+      const st = await api.addSubtask(taskId, newDesc.trim());
+      setSubtasks(prev => [...prev, st]);
+      setNewDesc('');
+    } finally { setAdding(false); }
+  }
+
+  async function toggle(st) {
+    const updated = await api.toggleSubtask(taskId, st.id, !st.is_done);
+    setSubtasks(prev => prev.map(s => s.id === st.id ? updated : s));
+  }
+
+  async function remove(id) {
+    await api.deleteSubtask(taskId, id);
+    setSubtasks(prev => prev.filter(s => s.id !== id));
+  }
+
+  const done = subtasks.filter(s => s.is_done).length;
+
+  return (
+    <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16 }} keyboardShouldPersistTaps="handled">
+      {subtasks.length > 0 && (
+        <View style={{ marginBottom: 12 }}>
+          <Text style={{ fontSize: 12, color: '#666' }}>{done}/{subtasks.length} completed</Text>
+          <View style={{ height: 4, backgroundColor: '#e5e7eb', borderRadius: 2, marginTop: 4 }}>
+            <View style={{ height: 4, backgroundColor: '#4caf50', borderRadius: 2, width: `${subtasks.length ? done / subtasks.length * 100 : 0}%` }} />
+          </View>
+        </View>
+      )}
+      {subtasks.map(st => (
+        <View key={st.id} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#f3f4f6' }}>
+          <TouchableOpacity onPress={() => toggle(st)} style={{ marginRight: 10 }}>
+            <View style={{ width: 20, height: 20, borderRadius: 4, borderWidth: 2, borderColor: st.is_done ? '#4caf50' : '#9ca3af', backgroundColor: st.is_done ? '#4caf50' : '#fff', alignItems: 'center', justifyContent: 'center' }}>
+              {st.is_done && <Text style={{ color: '#fff', fontSize: 12, fontWeight: '700' }}>✓</Text>}
+            </View>
+          </TouchableOpacity>
+          <Text style={{ flex: 1, fontSize: 14, color: st.is_done ? '#aaa' : '#222', textDecorationLine: st.is_done ? 'line-through' : 'none' }}>{st.description}</Text>
+          <TouchableOpacity onPress={() => remove(st.id)}><Text style={{ color: '#f44336', fontSize: 16, paddingLeft: 8 }}>✕</Text></TouchableOpacity>
+        </View>
+      ))}
+      <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
+        <TextInput
+          style={{ flex: 1, borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 8, padding: 10, fontSize: 14 }}
+          value={newDesc}
+          onChangeText={setNewDesc}
+          placeholder="Add subtask..."
+          onSubmitEditing={add}
+        />
+        <TouchableOpacity
+          onPress={add}
+          disabled={adding || !newDesc.trim()}
+          style={{ backgroundColor: colors.primary, paddingHorizontal: 14, borderRadius: 8, justifyContent: 'center' }}
+        >
+          <Text style={{ color: '#fff', fontWeight: '600' }}>Add</Text>
+        </TouchableOpacity>
+      </View>
+    </ScrollView>
+  );
+}
+
+function CommentsTab({ taskId }) {
+  const [comments, setComments] = useState([]);
+  const [text, setText] = useState('');
+  const [posting, setPosting] = useState(false);
+
+  useEffect(() => {
+    api.getComments(taskId).then(setComments).catch(() => {});
+  }, [taskId]);
+
+  async function post() {
+    if (!text.trim()) return;
+    setPosting(true);
+    try {
+      const c = await api.addComment(taskId, text.trim());
+      setComments(prev => [...prev, c]);
+      setText('');
+    } finally { setPosting(false); }
+  }
+
+  function fmtTs(ts) {
+    if (!ts) return '';
+    return new Date(ts).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+  }
+
+  return (
+    <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16 }} keyboardShouldPersistTaps="handled">
+      {comments.length === 0 && <Text style={{ textAlign: 'center', color: '#aaa', marginVertical: 20 }}>No comments yet</Text>}
+      {comments.map(c => (
+        <View key={c.id} style={{ backgroundColor: '#f9fafb', borderRadius: 8, padding: 12, marginBottom: 10 }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+            <Text style={{ fontSize: 12, fontWeight: '700', color: '#312e81' }}>{c.user_name || 'Unknown'}</Text>
+            <Text style={{ fontSize: 11, color: '#aaa' }}>{fmtTs(c.created_at)}</Text>
+          </View>
+          <Text style={{ fontSize: 14, color: '#333' }}>{c.comment}</Text>
+        </View>
+      ))}
+      <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+        <TextInput
+          style={{ flex: 1, borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 8, padding: 10, fontSize: 14 }}
+          value={text}
+          onChangeText={setText}
+          placeholder="Write a comment..."
+          onSubmitEditing={post}
+        />
+        <TouchableOpacity
+          onPress={post}
+          disabled={posting || !text.trim()}
+          style={{ backgroundColor: colors.primary, paddingHorizontal: 14, borderRadius: 8, justifyContent: 'center' }}
+        >
+          <Text style={{ color: '#fff', fontWeight: '600' }}>Post</Text>
+        </TouchableOpacity>
+      </View>
+    </ScrollView>
+  );
+}
+
 function TaskFormModal({ visible, task, sheetName, sections, stakeholders, onClose, onSaved }) {
+  const [activeTab, setActiveTab] = useState('details');
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
 
@@ -163,12 +302,14 @@ function TaskFormModal({ visible, task, sheetName, sections, stakeholders, onClo
     if (task) {
       const f = {};
       Object.keys(EMPTY_FORM).forEach(k => {
-        f[k] = task[k] ? (typeof task[k] === 'string' && task[k].includes('T') ? task[k].split('T')[0] : String(task[k])) : '';
+        if (k === 'is_recurring') { f[k] = task[k] === true || task[k] === 'true'; return; }
+        f[k] = task[k] ? (typeof task[k] === 'string' && task[k].includes('T') ? task[k].split('T')[0] : String(task[k])) : (k === 'recur_interval' ? 'weekly' : '');
       });
       setForm(f);
     } else {
       setForm({ ...EMPTY_FORM, sheet_name: sheetName || 'Sheet 1' });
     }
+    setActiveTab('details');
   }, [task, sheetName, visible]);
 
   function set(field, val) { setForm(f => ({ ...f, [field]: val })); }
@@ -179,6 +320,7 @@ function TaskFormModal({ visible, task, sheetName, sections, stakeholders, onClo
     try {
       const payload = { ...form };
       Object.keys(payload).forEach(k => { if (payload[k] === '') payload[k] = null; });
+      if (!payload.is_recurring) payload.recur_interval = null;
       if (task) await api.updateTask(task.id, payload);
       else await api.createTask(payload);
       onSaved();
@@ -189,6 +331,8 @@ function TaskFormModal({ visible, task, sheetName, sections, stakeholders, onClo
     }
   }
 
+  const RECUR_OPTIONS = ['daily', 'weekly', 'monthly'];
+
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
       <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }} edges={['top', 'bottom']}>
@@ -196,36 +340,79 @@ function TaskFormModal({ visible, task, sheetName, sections, stakeholders, onClo
           <Text style={s.modalTitle}>{task ? 'Edit Task' : 'New Task'}</Text>
           <TouchableOpacity onPress={onClose}><Text style={s.modalClose}>✕</Text></TouchableOpacity>
         </View>
-        <ScrollView style={s.modalBody} keyboardShouldPersistTaps="handled">
-          <Field
-            label="Task Description *"
-            value={form.task_description}
-            onChange={v => set('task_description', v)}
-            placeholder="Enter task..."
-            multiline
-          />
-          <PickerField label="Stakeholder" value={form.stakeholder} onChange={v => set('stakeholder', v)} options={stakeholders} />
-          <PickerField label="Section" value={form.section} onChange={v => set('section', v)} options={sections} />
 
-          <Text style={s.divider}>TARGET DATES</Text>
-          <DateField label="Initial Target Date" value={form.initial_target_date} onChange={v => set('initial_target_date', v)} />
-          <DateField label="Revised Date 1" value={form.revised_date_1} onChange={v => set('revised_date_1', v)} />
-          <DateField label="Revised Date 2" value={form.revised_date_2} onChange={v => set('revised_date_2', v)} />
-          <DateField label="Revised Date 3" value={form.revised_date_3} onChange={v => set('revised_date_3', v)} />
+        {task && (
+          <View style={{ flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: '#e5e7eb' }}>
+            {['details', 'subtasks', 'comments'].map(tab => (
+              <TouchableOpacity
+                key={tab}
+                onPress={() => setActiveTab(tab)}
+                style={{ flex: 1, paddingVertical: 10, alignItems: 'center', borderBottomWidth: 2, borderBottomColor: activeTab === tab ? colors.primary : 'transparent' }}
+              >
+                <Text style={{ fontSize: 13, fontWeight: activeTab === tab ? '700' : '400', color: activeTab === tab ? colors.primary : '#666', textTransform: 'capitalize' }}>{tab}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
 
-          <Text style={s.divider}>COMPLETION</Text>
-          <DateField label="Completion Date" value={form.completion_date} onChange={v => set('completion_date', v)} />
-          <Field label="Remarks" value={form.remarks} onChange={v => set('remarks', v)} placeholder="Any notes..." multiline />
-          <View style={{ height: 20 }} />
-        </ScrollView>
-        <View style={s.modalFooter}>
-          <TouchableOpacity style={s.cancelBtn} onPress={onClose}>
-            <Text style={s.cancelBtnText}>Cancel</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={s.saveBtn} onPress={handleSave} disabled={saving}>
-            {saving ? <ActivityIndicator color="#fff" size="small" /> : <Text style={s.saveBtnText}>{task ? 'Update Task' : 'Create Task'}</Text>}
-          </TouchableOpacity>
-        </View>
+        {activeTab === 'details' && (
+          <>
+            <ScrollView style={s.modalBody} keyboardShouldPersistTaps="handled">
+              <Field
+                label="Task Description *"
+                value={form.task_description}
+                onChange={v => set('task_description', v)}
+                placeholder="Enter task..."
+                multiline
+              />
+              <PickerField label="Stakeholder" value={form.stakeholder} onChange={v => set('stakeholder', v)} options={stakeholders} />
+              <PickerField label="Section" value={form.section} onChange={v => set('section', v)} options={sections} />
+
+              <Text style={s.divider}>TARGET DATES</Text>
+              <DateField label="Initial Target Date" value={form.initial_target_date} onChange={v => set('initial_target_date', v)} />
+              <DateField label="Revised Date 1" value={form.revised_date_1} onChange={v => set('revised_date_1', v)} />
+              <DateField label="Revised Date 2" value={form.revised_date_2} onChange={v => set('revised_date_2', v)} />
+              <DateField label="Revised Date 3" value={form.revised_date_3} onChange={v => set('revised_date_3', v)} />
+
+              <Text style={s.divider}>COMPLETION</Text>
+              <DateField label="Completion Date" value={form.completion_date} onChange={v => set('completion_date', v)} maxToday />
+              <Field label="Remarks" value={form.remarks} onChange={v => set('remarks', v)} placeholder="Any notes..." multiline />
+
+              <Text style={s.divider}>RECURRING</Text>
+              <TouchableOpacity
+                onPress={() => set('is_recurring', !form.is_recurring)}
+                style={{ flexDirection: 'row', alignItems: 'center', padding: 12, gap: 10 }}
+              >
+                <View style={{ width: 22, height: 22, borderRadius: 4, borderWidth: 2, borderColor: form.is_recurring ? colors.primary : '#9ca3af', backgroundColor: form.is_recurring ? colors.primary : '#fff', alignItems: 'center', justifyContent: 'center' }}>
+                  {form.is_recurring && <Text style={{ color: '#fff', fontSize: 13, fontWeight: '700' }}>✓</Text>}
+                </View>
+                <Text style={{ fontSize: 14, color: '#333' }}>Recurring task (auto-creates next on completion)</Text>
+              </TouchableOpacity>
+
+              {form.is_recurring && (
+                <PickerField
+                  label="Repeat Every"
+                  value={form.recur_interval}
+                  onChange={v => set('recur_interval', v)}
+                  options={RECUR_OPTIONS}
+                />
+              )}
+
+              <View style={{ height: 20 }} />
+            </ScrollView>
+            <View style={s.modalFooter}>
+              <TouchableOpacity style={s.cancelBtn} onPress={onClose}>
+                <Text style={s.cancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={s.saveBtn} onPress={handleSave} disabled={saving}>
+                {saving ? <ActivityIndicator color="#fff" size="small" /> : <Text style={s.saveBtnText}>{task ? 'Update Task' : 'Create Task'}</Text>}
+              </TouchableOpacity>
+            </View>
+          </>
+        )}
+
+        {activeTab === 'subtasks' && task && <SubtasksTab taskId={task.id} />}
+        {activeTab === 'comments' && task && <CommentsTab taskId={task.id} />}
       </SafeAreaView>
     </Modal>
   );
@@ -268,7 +455,7 @@ function FilterPicker({ label, value, onChange, options }) {
 
 // ── Main Tasks screen ──────────────────────────────────────────────
 
-export default function TasksScreen({ sheetName }) {
+export default function TasksScreen({ sheetName, taskFilter }) {
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -280,6 +467,15 @@ export default function TasksScreen({ sheetName }) {
   const [filterPerson, setFilterPerson] = useState('');
   const [modalTask, setModalTask] = useState(undefined);
   const [showModal, setShowModal] = useState(false);
+
+  useEffect(() => {
+    if (taskFilter) {
+      setFilterStatus(taskFilter.status ?? '');
+      setFilterPerson(taskFilter.stakeholder ?? '');
+      setFilterSection('');
+      setSearch('');
+    }
+  }, [taskFilter]);
 
   const load = useCallback(async () => {
     try {

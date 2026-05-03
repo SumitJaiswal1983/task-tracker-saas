@@ -8,7 +8,7 @@ import { colors, shadow, radius } from '../theme';
 
 export default function PaywallScreen({ company, onLogout }) {
   function openWebsite() {
-    Linking.openURL('https://task-tracker-saas.onrender.com').catch(() => {
+    Linking.openURL('https://task-tracker-backend-production-94c1.up.railway.app').catch(() => {
       Alert.alert('Error', 'Could not open browser');
     });
   }

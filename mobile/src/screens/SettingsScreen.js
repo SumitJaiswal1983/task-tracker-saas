@@ -111,7 +111,7 @@ export default function SettingsScreen({ user, company, onLogout }) {
   }
 
   function openWebApp() {
-    Linking.openURL('https://task-tracker-saas.onrender.com').catch(() => Alert.alert('Error', 'Could not open browser'));
+    Linking.openURL('https://task-tracker-backend-production-94c1.up.railway.app').catch(() => Alert.alert('Error', 'Could not open browser'));
   }
 
   const daysLeft = company?.days_remaining;
