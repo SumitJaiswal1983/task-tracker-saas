@@ -1,10 +1,16 @@
 import React from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, Linking, Alert,
+  View, Text, StyleSheet, TouchableOpacity, Linking, Alert, ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { colors, shadow, radius } from '../theme';
+
+const PLANS = [
+  { label: 'Basic',   price: '₹199', per: '/mo', wa: '300 WA/mo',   color: '#6b7280' },
+  { label: 'Starter', price: '₹299', per: '/mo', wa: '500 WA/mo',   color: '#4f46e5', popular: true },
+  { label: 'Growth',  price: '₹599', per: '/mo', wa: '1,000 WA/mo', color: '#0891b2' },
+];
 
 export default function PaywallScreen({ company, onLogout }) {
   function openWebsite() {
@@ -27,7 +33,7 @@ export default function PaywallScreen({ company, onLogout }) {
 
   return (
     <SafeAreaView style={s.safe}>
-      <View style={s.content}>
+      <ScrollView contentContainerStyle={s.content}>
         <View style={s.iconWrap}>
           <Text style={{ fontSize: 48 }}>🔒</Text>
         </View>
@@ -35,19 +41,31 @@ export default function PaywallScreen({ company, onLogout }) {
         <Text style={s.title}>Free trial ended</Text>
         <Text style={s.sub}>
           {company?.company_name ? `${company.company_name}'s ` : ''}30-day trial is over.{'\n'}
-          Upgrade to continue using the app.
+          Choose a plan to continue.
         </Text>
 
-        <View style={s.plansRow}>
-          <View style={s.planCard}>
-            <Text style={s.planLabel}>MONTHLY</Text>
-            <Text style={s.planPrice}>₹799<Text style={s.planPer}>/mo</Text></Text>
-          </View>
-          <View style={[s.planCard, s.planCardFeatured]}>
-            <View style={s.saveBadge}><Text style={s.saveBadgeText}>SAVE 27%</Text></View>
-            <Text style={[s.planLabel, { color: colors.success }]}>YEARLY</Text>
-            <Text style={[s.planPrice, { color: colors.success }]}>₹6,999<Text style={s.planPer}>/yr</Text></Text>
-          </View>
+        <View style={s.plansCol}>
+          {PLANS.map(p => (
+            <TouchableOpacity key={p.label} style={[s.planCard, p.popular && s.planCardFeatured]} activeOpacity={0.85} onPress={openWebsite}>
+              {p.popular && (
+                <View style={s.saveBadge}><Text style={s.saveBadgeText}>POPULAR</Text></View>
+              )}
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <View>
+                  <Text style={[s.planLabel, { color: p.color }]}>{p.label}</Text>
+                  <Text style={s.planWa}>💬 {p.wa}</Text>
+                </View>
+                <View style={{ alignItems: 'flex-end' }}>
+                  <Text style={[s.planPrice, p.popular && { color: '#fff' }]}>
+                    {p.price}<Text style={s.planPer}>{p.per}</Text>
+                  </Text>
+                  <Text style={[s.planYearly, p.popular && { color: 'rgba(255,255,255,0.6)' }]}>
+                    10% off on yearly
+                  </Text>
+                </View>
+              </View>
+            </TouchableOpacity>
+          ))}
         </View>
 
         <TouchableOpacity style={s.upgradeBtn} onPress={openWebsite} activeOpacity={0.85}>
@@ -59,42 +77,47 @@ export default function PaywallScreen({ company, onLogout }) {
         <TouchableOpacity onPress={handleLogout} style={{ marginTop: 24 }}>
           <Text style={s.logoutText}>Sign out</Text>
         </TouchableOpacity>
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
 
 const s = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#312e81' },
-  content: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 28 },
+  content: { alignItems: 'center', padding: 28, paddingBottom: 40 },
 
   iconWrap: {
-    width: 88, height: 88, borderRadius: 44,
+    width: 80, height: 80, borderRadius: 40,
     backgroundColor: 'rgba(255,255,255,0.15)',
-    alignItems: 'center', justifyContent: 'center', marginBottom: 24,
+    alignItems: 'center', justifyContent: 'center', marginBottom: 20,
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.25)',
   },
 
-  title: { fontSize: 24, fontWeight: '800', color: '#fff', marginBottom: 10, textAlign: 'center' },
-  sub: { fontSize: 14, color: 'rgba(255,255,255,0.7)', textAlign: 'center', lineHeight: 22, marginBottom: 32 },
+  title: { fontSize: 24, fontWeight: '800', color: '#fff', marginBottom: 8, textAlign: 'center' },
+  sub: { fontSize: 14, color: 'rgba(255,255,255,0.7)', textAlign: 'center', lineHeight: 22, marginBottom: 28 },
 
-  plansRow: { flexDirection: 'row', gap: 12, marginBottom: 28, width: '100%' },
+  plansCol: { width: '100%', gap: 10, marginBottom: 24 },
+
   planCard: {
-    flex: 1, backgroundColor: 'rgba(255,255,255,0.12)', borderRadius: radius.md,
-    padding: 18, alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: 'rgba(255,255,255,0.12)', borderRadius: radius.md,
+    padding: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)',
+    position: 'relative',
   },
   planCardFeatured: {
-    backgroundColor: 'rgba(255,255,255,0.18)',
-    borderColor: 'rgba(255,255,255,0.4)', position: 'relative',
+    backgroundColor: '#4f46e5',
+    borderColor: 'rgba(255,255,255,0.5)',
   },
   saveBadge: {
-    position: 'absolute', top: -10, left: '50%', transform: [{ translateX: -28 }],
-    backgroundColor: colors.success, paddingHorizontal: 10, paddingVertical: 3, borderRadius: 20,
+    position: 'absolute', top: -10, right: 16,
+    backgroundColor: '#fff', paddingHorizontal: 10, paddingVertical: 3, borderRadius: 20,
   },
-  saveBadgeText: { fontSize: 9, fontWeight: '800', color: '#fff' },
-  planLabel: { fontSize: 10, fontWeight: '700', color: 'rgba(255,255,255,0.6)', letterSpacing: 0.8, marginBottom: 6 },
-  planPrice: { fontSize: 26, fontWeight: '800', color: '#fff' },
-  planPer: { fontSize: 13, fontWeight: '400', color: 'rgba(255,255,255,0.6)' },
+  saveBadgeText: { fontSize: 9, fontWeight: '800', color: '#4f46e5' },
+
+  planLabel: { fontSize: 13, fontWeight: '800', letterSpacing: 0.5, marginBottom: 4 },
+  planWa: { fontSize: 12, color: 'rgba(255,255,255,0.65)' },
+  planPrice: { fontSize: 24, fontWeight: '800', color: '#fff' },
+  planPer: { fontSize: 12, fontWeight: '400', color: 'rgba(255,255,255,0.55)' },
+  planYearly: { fontSize: 10, color: 'rgba(255,255,255,0.45)', marginTop: 2 },
 
   upgradeBtn: {
     backgroundColor: '#fff', borderRadius: radius.md,
@@ -104,5 +127,5 @@ const s = StyleSheet.create({
   upgradeBtnText: { fontSize: 15, fontWeight: '800', color: '#312e81' },
 
   hint: { fontSize: 12, color: 'rgba(255,255,255,0.5)', textAlign: 'center', marginTop: 16, lineHeight: 18 },
-  logoutText: { fontSize: 13, color: 'rgba(255,255,255,0.45)', textDecoration: 'underline' },
+  logoutText: { fontSize: 13, color: 'rgba(255,255,255,0.45)' },
 });
