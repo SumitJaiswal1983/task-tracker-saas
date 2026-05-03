@@ -22,7 +22,7 @@
         "backgroundColor": "#312e81"
       },
       "package": "com.highflow.tasktracker",
-      "versionCode": 2
+      "versionCode": 9
     },
     "web": {
       "favicon": "./assets/favicon.png"

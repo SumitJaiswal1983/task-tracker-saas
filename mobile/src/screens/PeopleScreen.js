@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, FlatList, StyleSheet, TouchableOpacity,
   TextInput, Alert, Modal, ScrollView, KeyboardAvoidingView, Platform,
-  ActivityIndicator, RefreshControl,
+  ActivityIndicator, RefreshControl, Share, Clipboard,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, shadow, radius } from '../theme';
@@ -152,6 +152,14 @@ function SectionForm({ visible, onClose, onSaved }) {
 }
 
 // ── Main screen ──────────────────────────────────────────────────
+const HOURS = Array.from({ length: 24 }, (_, i) => {
+  const ampm = i < 12 ? 'AM' : 'PM';
+  const h = i === 0 ? 12 : i > 12 ? i - 12 : i;
+  return { value: i, label: `${h}:00 ${ampm}` };
+});
+const DAY_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+const DAY_LABELS = { mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat', sun: 'Sun' };
+
 export default function PeopleScreen() {
   const [people, setPeople] = useState([]);
   const [sections, setSections] = useState([]);
@@ -163,14 +171,27 @@ export default function PeopleScreen() {
   const [sending, setSending] = useState(false);
   const [tab, setTab] = useState('people');
 
+  // Settings state
+  const [settings, setSettings] = useState(null);
+  const [notifyHour, setNotifyHour] = useState(9);
+  const [notifyDays, setNotifyDays] = useState(DAY_KEYS);
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [settingsSaved, setSettingsSaved] = useState(false);
+
   const load = useCallback(async () => {
     try {
-      const [p, sec] = await Promise.all([
+      const [p, sec, s] = await Promise.all([
         api.getPeopleFull(),
         api.getSectionsFull(),
+        api.getSettings().catch(() => null),
       ]);
       setPeople(Array.isArray(p) ? p : []);
       setSections(Array.isArray(sec) ? sec : []);
+      if (s) {
+        setSettings(s);
+        setNotifyHour(s.notify_hour ?? 9);
+        setNotifyDays((s.notify_days || 'mon,tue,wed,thu,fri,sat,sun').split(',').map(d => d.trim()));
+      }
     } catch (e) {
       console.error('PeopleScreen load error:', e);
     } finally {
@@ -178,6 +199,21 @@ export default function PeopleScreen() {
       setRefreshing(false);
     }
   }, []);
+
+  async function saveSettings() {
+    if (notifyDays.length === 0) { Alert.alert('Error', 'Select at least one day'); return; }
+    setSavingSettings(true);
+    try {
+      await api.saveSettings({ notify_hour: notifyHour, notify_days: notifyDays.join(',') });
+      setSettingsSaved(true);
+      setTimeout(() => setSettingsSaved(false), 2000);
+    } catch (e) { Alert.alert('Error', e.message); }
+    finally { setSavingSettings(false); }
+  }
+
+  function toggleDay(key) {
+    setNotifyDays(prev => prev.includes(key) ? prev.filter(d => d !== key) : [...prev, key]);
+  }
 
   useEffect(() => { load(); }, [load]);
 
@@ -217,30 +253,23 @@ export default function PeopleScreen() {
     <SafeAreaView style={s.safe} edges={['bottom']}>
       {/* Tab switcher */}
       <View style={s.tabRow}>
-        <TouchableOpacity
-          style={[s.tabBtn, tab === 'people' && s.tabBtnActive]}
-          onPress={() => setTab('people')}
-        >
+        <TouchableOpacity style={[s.tabBtn, tab === 'people' && s.tabBtnActive]} onPress={() => setTab('people')}>
           <Text style={[s.tabBtnText, tab === 'people' && s.tabBtnTextActive]}>👥 People</Text>
         </TouchableOpacity>
-        <TouchableOpacity
-          style={[s.tabBtn, tab === 'sections' && s.tabBtnActive]}
-          onPress={() => setTab('sections')}
-        >
+        <TouchableOpacity style={[s.tabBtn, tab === 'sections' && s.tabBtnActive]} onPress={() => setTab('sections')}>
           <Text style={[s.tabBtnText, tab === 'sections' && s.tabBtnTextActive]}>🏢 Sections</Text>
         </TouchableOpacity>
-        <TouchableOpacity
-          style={[s.waBtn, sending && { opacity: 0.6 }]}
-          onPress={sendNow}
-          disabled={sending}
-        >
+        <TouchableOpacity style={[s.tabBtn, tab === 'settings' && s.tabBtnActive]} onPress={() => setTab('settings')}>
+          <Text style={[s.tabBtnText, tab === 'settings' && s.tabBtnTextActive]}>⚙️ Settings</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[s.waBtn, sending && { opacity: 0.6 }]} onPress={sendNow} disabled={sending}>
           <Text style={s.waBtnText}>{sending ? '...' : '📲 Send'}</Text>
         </TouchableOpacity>
       </View>
 
       {loading ? (
         <View style={s.loader}><ActivityIndicator size="large" color={colors.primary} /></View>
-      ) : tab === 'people' ? (
+      ) : tab === 'settings' ? null : tab === 'people' ? (
         <FlatList
           data={people}
           keyExtractor={p => String(p.id)}
@@ -249,9 +278,32 @@ export default function PeopleScreen() {
           }
           contentContainerStyle={[s.list, people.length === 0 && { flexGrow: 1 }]}
           ListHeaderComponent={
-            <TouchableOpacity style={s.addBtn} onPress={() => { setModalPerson(null); setShowPersonModal(true); }}>
-              <Text style={s.addBtnText}>+ Add Person</Text>
-            </TouchableOpacity>
+            <>
+              {/* One-time WhatsApp setup card */}
+              <View style={s.setupCard}>
+                <Text style={s.setupTitle}>📲 One-Time WhatsApp Setup</Text>
+                <Text style={s.setupDesc}>
+                  Share this link with your stakeholders <Text style={{ fontWeight: '700' }}>once</Text>. When they tap it and press Send, daily reminders will go directly to their WhatsApp chat.
+                </Text>
+                <View style={s.setupRow}>
+                  <TouchableOpacity
+                    style={[s.setupBtn, { backgroundColor: '#15803d', flex: 1 }]}
+                    onPress={() => Share.share({ message: 'Please click this link once to receive your daily task reminders on WhatsApp:\nhttps://wa.me/919277242391?text=Task+Reminder' })}
+                  >
+                    <Text style={s.setupBtnText}>🔗 Share Link</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[s.setupBtn, { backgroundColor: '#374151', marginLeft: 8 }]}
+                    onPress={() => { Clipboard.setString('https://wa.me/919277242391?text=Task+Reminder'); Alert.alert('Copied!', 'Link copied to clipboard.'); }}
+                  >
+                    <Text style={s.setupBtnText}>Copy</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+              <TouchableOpacity style={s.addBtn} onPress={() => { setModalPerson(null); setShowPersonModal(true); }}>
+                <Text style={s.addBtnText}>+ Add Person</Text>
+              </TouchableOpacity>
+            </>
           }
           renderItem={({ item }) => (
             <View style={s.itemCard}>
@@ -316,6 +368,76 @@ export default function PeopleScreen() {
         />
       )}
 
+      {/* Settings tab */}
+      {tab === 'settings' && (
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16 }}>
+          {/* WA usage */}
+          {settings && (
+            <View style={s.settingsCard}>
+              <Text style={s.settingsCardTitle}>📊 WhatsApp Usage This Month</Text>
+              {(() => {
+                const sent = settings.wa_messages_sent || 0;
+                const limit = settings.wa_limit ?? 100;  // from cached company data (not in settings endpoint currently)
+                const pct = limit === -1 ? 0 : Math.min(100, Math.round((sent / (limit || 1)) * 100));
+                return (
+                  <>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
+                      <Text style={{ fontSize: 13, color: '#555' }}>Messages sent</Text>
+                      <Text style={{ fontSize: 13, fontWeight: '700', color: pct >= 80 ? '#dc2626' : '#312e81' }}>
+                        {sent} / {limit === -1 ? '∞' : limit}
+                      </Text>
+                    </View>
+                    <View style={{ height: 6, backgroundColor: '#e5e7eb', borderRadius: 3 }}>
+                      <View style={{ height: 6, borderRadius: 3, backgroundColor: pct >= 80 ? '#dc2626' : '#25d366', width: `${limit === -1 ? 0 : pct}%` }} />
+                    </View>
+                  </>
+                );
+              })()}
+            </View>
+          )}
+
+          {/* Notification schedule */}
+          <View style={s.settingsCard}>
+            <Text style={s.settingsCardTitle}>⏰ Notification Schedule</Text>
+            <Text style={{ fontSize: 12, color: '#666', marginBottom: 14 }}>When to send daily WhatsApp reminders (IST)</Text>
+
+            <Text style={s.settingsLabel}>Send Time</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
+              {HOURS.map(h => (
+                <TouchableOpacity
+                  key={h.value}
+                  onPress={() => setNotifyHour(h.value)}
+                  style={[s.hourChip, notifyHour === h.value && s.hourChipActive]}
+                >
+                  <Text style={[s.hourChipText, notifyHour === h.value && s.hourChipTextActive]}>{h.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+
+            <Text style={s.settingsLabel}>Send On Days</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 20 }}>
+              {DAY_KEYS.map(k => (
+                <TouchableOpacity
+                  key={k}
+                  onPress={() => toggleDay(k)}
+                  style={[s.dayChip, notifyDays.includes(k) && s.dayChipActive]}
+                >
+                  <Text style={[s.dayChipText, notifyDays.includes(k) && s.dayChipTextActive]}>{DAY_LABELS[k]}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <TouchableOpacity
+              style={[s.saveSettingsBtn, savingSettings && { opacity: 0.6 }]}
+              onPress={saveSettings}
+              disabled={savingSettings}
+            >
+              <Text style={s.saveSettingsBtnText}>{savingSettings ? 'Saving...' : settingsSaved ? '✓ Saved!' : 'Save Schedule'}</Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      )}
+
       <PersonForm
         visible={showPersonModal}
         person={modalPerson}
@@ -366,6 +488,13 @@ const s = StyleSheet.create({
   deleteBtn: { backgroundColor: colors.dangerLight, padding: 9, borderRadius: 8, borderWidth: 1, borderColor: '#fecaca' },
   deleteBtnText: { fontSize: 15, color: colors.danger },
 
+  setupCard: { backgroundColor: '#f0fdf4', borderWidth: 1, borderColor: '#bbf7d0', borderRadius: 12, padding: 14, marginBottom: 12 },
+  setupTitle: { fontSize: 13, fontWeight: '800', color: '#15803d', marginBottom: 6 },
+  setupDesc: { fontSize: 12, color: '#166534', lineHeight: 18, marginBottom: 10 },
+  setupRow: { flexDirection: 'row' },
+  setupBtn: { paddingVertical: 9, paddingHorizontal: 14, borderRadius: 8, alignItems: 'center' },
+  setupBtnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
+
   emptyWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 60 },
   emptyText: { fontSize: 15, fontWeight: '600', color: colors.textMuted, marginBottom: 6 },
   emptySubText: { fontSize: 13, color: '#9ca3af', textAlign: 'center', paddingHorizontal: 40 },
@@ -379,6 +508,20 @@ const s = StyleSheet.create({
   cancelBtnText: { fontSize: 14, fontWeight: '600', color: colors.textMuted },
   saveBtn: { flex: 2, backgroundColor: colors.primary, borderRadius: radius.sm, padding: 13, alignItems: 'center' },
   saveBtnText: { fontSize: 14, fontWeight: '700', color: '#fff' },
+
+  settingsCard: { backgroundColor: '#fff', borderRadius: 12, padding: 16, marginBottom: 14, borderWidth: 1, borderColor: '#e5e7eb' },
+  settingsCardTitle: { fontSize: 14, fontWeight: '800', color: colors.text, marginBottom: 12 },
+  settingsLabel: { fontSize: 11, fontWeight: '700', color: colors.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 },
+  hourChip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, backgroundColor: '#f3f4f6', marginRight: 8, borderWidth: 1.5, borderColor: '#e5e7eb' },
+  hourChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  hourChipText: { fontSize: 13, fontWeight: '600', color: '#555' },
+  hourChipTextActive: { color: '#fff' },
+  dayChip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, backgroundColor: '#f3f4f6', borderWidth: 1.5, borderColor: '#e5e7eb' },
+  dayChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  dayChipText: { fontSize: 13, fontWeight: '600', color: '#555' },
+  dayChipTextActive: { color: '#fff' },
+  saveSettingsBtn: { backgroundColor: colors.primary, borderRadius: 10, padding: 14, alignItems: 'center' },
+  saveSettingsBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
 
   fieldLabel: { fontSize: 11, fontWeight: '700', color: colors.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 },
   fieldInput: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, padding: 13, fontSize: 14, color: colors.text, backgroundColor: '#fafafa' },

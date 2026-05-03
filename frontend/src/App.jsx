@@ -9,6 +9,7 @@ import TaskList from './components/TaskList';
 import Users from './components/Users';
 import PeopleAndSections from './components/PeopleAndSections';
 import SuperAdmin from './components/SuperAdmin';
+import Settings from './components/Settings';
 
 const SHEETS = [
   { id: 'Sheet 1', label: 'Sheet 1' },
@@ -27,6 +28,12 @@ export default function App() {
   const [page, setPage] = useState('login'); // 'login' | 'signup'
   const [tab, setTab] = useState('dashboard');
   const [sheet, setSheet] = useState('Sheet 1');
+  const [taskFilter, setTaskFilter] = useState(null);
+
+  function navigateToTasks(filter) {
+    setTaskFilter(filter);
+    setTab('tasks');
+  }
 
   useEffect(() => {
     if (user) localStorage.setItem('tt_user', JSON.stringify(user));
@@ -121,6 +128,11 @@ export default function App() {
                   Users
                 </button>
               )}
+              {user.role === 'admin' && (
+                <button className={`nav-tab${tab === 'settings' ? ' active' : ''}`} onClick={() => setTab('settings')}>
+                  Settings
+                </button>
+              )}
             </>
           )}
           {isSuperAdmin && (
@@ -167,10 +179,11 @@ export default function App() {
 
       <main className="page">
         {isSuperAdmin && <SuperAdmin />}
-        {!isSuperAdmin && tab === 'dashboard' && <Dashboard sheetName={sheet} currentUser={user} />}
-        {!isSuperAdmin && tab === 'tasks' && <TaskList sheetName={sheet} currentUser={user} />}
-        {!isSuperAdmin && tab === 'people' && user.role === 'admin' && <PeopleAndSections />}
-        {!isSuperAdmin && tab === 'users' && user.role === 'admin' && <Users currentUser={user} />}
+        {!isSuperAdmin && tab === 'dashboard' && <Dashboard sheetName={sheet} currentUser={user} onNavigateTasks={navigateToTasks} />}
+        {!isSuperAdmin && tab === 'tasks' && <TaskList sheetName={sheet} currentUser={user} initialFilter={taskFilter} />}
+        {!isSuperAdmin && tab === 'people' && user.role === 'admin' && <PeopleAndSections company={company} />}
+        {!isSuperAdmin && tab === 'users' && user.role === 'admin' && <Users currentUser={user} company={company} />}
+        {!isSuperAdmin && tab === 'settings' && user.role === 'admin' && <Settings company={company} onCompanyUpdate={setCompany} />}
       </main>
     </>
   );

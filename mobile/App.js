@@ -36,6 +36,8 @@ export default function App() {
 
   useEffect(() => {
     async function restore() {
+      // Fire-and-forget to warm up TCP connection before user tries to login
+      fetch('https://task-tracker-backend-production-94c1.up.railway.app/api/ping').catch(() => {});
       try {
         const u = await AsyncStorage.getItem('tt_user');
         const c = await AsyncStorage.getItem('tt_company');

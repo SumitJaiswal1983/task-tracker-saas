@@ -120,7 +120,7 @@ function UserModal({ user, onClose, onSaved }) {
   );
 }
 
-export default function Users({ currentUser }) {
+export default function Users({ currentUser, company }) {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -152,15 +152,35 @@ export default function Users({ currentUser }) {
     return new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
   }
 
+  const maxUsers = company?.max_users ?? 3;
+  const atLimit = maxUsers > 0 && users.length >= maxUsers;
+
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
         <div>
           <h2 style={{ fontSize: 16, fontWeight: 700 }}>User Management</h2>
-          <p style={{ fontSize: 13, color: '#888', marginTop: 2 }}>Control who can access this app</p>
+          <p style={{ fontSize: 13, color: '#888', marginTop: 2 }}>
+            Control who can access this app
+            {maxUsers > 0 && (
+              <span style={{ marginLeft: 10, fontWeight: 600, color: atLimit ? '#dc2626' : '#312e81' }}>
+                {users.length}/{maxUsers} users used
+              </span>
+            )}
+          </p>
         </div>
-        <button className="btn btn-primary" onClick={() => { setEditUser(null); setShowModal(true); }}>+ New User</button>
+        <button
+          className="btn btn-primary"
+          onClick={() => { setEditUser(null); setShowModal(true); }}
+          disabled={atLimit}
+          title={atLimit ? `User limit reached (${maxUsers} max on trial). Upgrade to add more.` : ''}
+        >+ New User</button>
       </div>
+      {atLimit && (
+        <div style={{ background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 8, padding: '10px 16px', marginBottom: 16, fontSize: 13, color: '#991b1b' }}>
+          User limit reached ({maxUsers} max on trial). Upgrade your plan to add more users.
+        </div>
+      )}
 
       <div className="card">
         <div className="table-wrap">

@@ -74,6 +74,18 @@ export const api = {
   verifyPayment: (data) => req('/payment/verify', { method: 'POST', body: JSON.stringify(data) }),
 
   getNotificationStatus: () => req('/notifications/status'),
-  sendOverdueReminders: () => req('/notifications/send-overdue', { method: 'POST' }),
+  sendOverdueReminders: (stakeholderIds = null) => req('/notifications/send-overdue', { method: 'POST', body: JSON.stringify({ stakeholderIds }) }),
   testWhatsApp: (phone) => req('/notifications/test', { method: 'POST', body: JSON.stringify({ phone }) }),
+
+  getSettings: () => req('/settings'),
+  saveSettings: (data) => req('/settings', { method: 'PUT', body: JSON.stringify(data) }),
+
+  getComments: (taskId) => req(`/tasks/${taskId}/comments`),
+  addComment: (taskId, comment) => req(`/tasks/${taskId}/comments`, { method: 'POST', body: JSON.stringify({ comment }) }),
+  deleteComment: (taskId, commentId) => req(`/tasks/${taskId}/comments/${commentId}`, { method: 'DELETE' }),
+
+  getSubtasks: (taskId) => req(`/tasks/${taskId}/subtasks`),
+  addSubtask: (taskId, description) => req(`/tasks/${taskId}/subtasks`, { method: 'POST', body: JSON.stringify({ description }) }),
+  toggleSubtask: (taskId, subtaskId, is_done) => req(`/tasks/${taskId}/subtasks/${subtaskId}`, { method: 'PATCH', body: JSON.stringify({ is_done }) }),
+  deleteSubtask: (taskId, subtaskId) => req(`/tasks/${taskId}/subtasks/${subtaskId}`, { method: 'DELETE' }),
 };
