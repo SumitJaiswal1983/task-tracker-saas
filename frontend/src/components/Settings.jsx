@@ -18,12 +18,17 @@ const HOURS = Array.from({ length: 24 }, (_, i) => {
 });
 
 const PLAN_LABELS = {
-  trial: 'Trial',
-  monthly: 'Starter (₹799/mo)',
-  starter: 'Starter (₹799/mo)',
-  growth: 'Growth (₹1,499/mo)',
-  pro: 'Pro (₹2,999/mo)',
-  yearly: 'Yearly (₹6,999/yr)',
+  trial:      'Trial',
+  basic:      'Basic (₹199/mo · 300 WA)',
+  starter:    'Starter (₹299/mo · 500 WA)',
+  growth:     'Growth (₹1,000/mo · 1,500 WA)',
+  pro:        'Pro (₹2,000/mo · 3,000 WA)',
+  basic_yr:   'Basic Yearly (₹2,149/yr · 3,600 WA)',
+  starter_yr: 'Starter Yearly (₹3,229/yr · 6,000 WA)',
+  growth_yr:  'Growth Yearly (₹10,800/yr · 18,000 WA)',
+  pro_yr:     'Pro Yearly (₹21,600/yr · 36,000 WA)',
+  monthly:    'Starter (₹299/mo · 500 WA)',
+  yearly:     'Legacy Yearly (₹6,999/yr)',
 };
 
 function UsageBar({ used, limit, label, color = '#312e81' }) {
@@ -122,11 +127,11 @@ export default function Settings({ company, onCompanyUpdate }) {
                 </p>
                 <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                   {[
-                    { plan: 'basic',   label: '₹199/mo',   sub: '300 WA/mo' },
-                    { plan: 'starter', label: '₹299/mo',   sub: '500 WA/mo', highlight: true },
-                    { plan: 'growth',  label: '₹1,499/mo', sub: '2,000 WA/mo' },
-                    { plan: 'pro',     label: '₹2,999/mo', sub: 'Unlimited WA' },
-                    { plan: 'yearly',  label: '₹6,999/yr', sub: '6,000 WA/yr' },
+                    { plan: 'basic',   label: '₹199/mo',    sub: '300 WA/mo' },
+                    { plan: 'starter', label: '₹299/mo',    sub: '500 WA/mo', highlight: true },
+                    { plan: 'growth',  label: '₹1,000/mo',  sub: '1,500 WA/mo' },
+                    { plan: 'pro',     label: '₹2,000/mo',  sub: '3,000 WA/mo' },
+                    { plan: 'pro_yr',  label: '₹21,600/yr', sub: '36,000 WA/yr — 10% off' },
                   ].map(p => (
                     <div key={p.plan} style={{
                       border: `2px solid ${p.highlight ? '#312e81' : '#e5e7eb'}`,

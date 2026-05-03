@@ -12,59 +12,55 @@ function loadRazorpay() {
   });
 }
 
-const PLAN_LIST = [
+const PLANS = [
   {
-    key: 'basic',
+    key: 'basic',     yearlyKey: 'basic_yr',
     label: 'Basic',
-    price: '₹199',
-    period: '/mo',
-    wa: '300 WA messages/mo',
-    color: '#6b7280',
-    border: '#d1d5db',
+    price: 199,       yearlyPrice: 2149,   effectiveMonthly: 179,
+    wa: 300,          waYearly: 3600,
+    color: '#6b7280', border: '#d1d5db',
   },
   {
-    key: 'starter',
+    key: 'starter',   yearlyKey: 'starter_yr',
     label: 'Starter',
-    price: '₹299',
-    period: '/mo',
-    wa: '500 WA messages/mo',
-    color: '#4f46e5',
-    border: '#4f46e5',
+    price: 299,       yearlyPrice: 3229,   effectiveMonthly: 269,
+    wa: 500,          waYearly: 6000,
+    color: '#4f46e5', border: '#4f46e5',
     popular: true,
   },
   {
-    key: 'growth',
+    key: 'growth',    yearlyKey: 'growth_yr',
     label: 'Growth',
-    price: '₹1,499',
-    period: '/mo',
-    wa: '2,000 WA messages/mo',
-    color: '#0891b2',
-    border: '#0891b2',
+    price: 1000,      yearlyPrice: 10800,  effectiveMonthly: 900,
+    wa: 1500,         waYearly: 18000,
+    color: '#0891b2', border: '#0891b2',
   },
   {
-    key: 'pro',
+    key: 'pro',       yearlyKey: 'pro_yr',
     label: 'Pro',
-    price: '₹2,999',
-    period: '/mo',
-    wa: 'Unlimited WA',
-    color: '#7c3aed',
-    border: '#7c3aed',
+    price: 2000,      yearlyPrice: 21600,  effectiveMonthly: 1800,
+    wa: 3000,         waYearly: 36000,
+    color: '#7c3aed', border: '#7c3aed',
   },
 ];
+
+function fmt(n) {
+  return n >= 1000 ? `₹${(n / 1000).toFixed(n % 1000 === 0 ? 0 : 1)}K` : `₹${n}`;
+}
 
 export default function Paywall({ company, user, onPaymentSuccess, onLogout }) {
   const [loading, setLoading] = useState(null);
   const [error, setError] = useState('');
-  const [showYearly, setShowYearly] = useState(false);
+  const [yearly, setYearly] = useState(false);
 
-  async function handlePay(plan) {
-    setLoading(plan);
+  async function handlePay(planKey) {
+    setLoading(planKey);
     setError('');
     try {
       const loaded = await loadRazorpay();
-      if (!loaded) throw new Error('Payment gateway failed to load. Check your internet connection.');
+      if (!loaded) throw new Error('Payment gateway failed to load.');
 
-      const order = await api.createPaymentOrder(plan);
+      const order = await api.createPaymentOrder(planKey);
       if (!order) return;
 
       const options = {
@@ -82,13 +78,13 @@ export default function Paywall({ company, user, onPaymentSuccess, onLogout }) {
               razorpay_order_id: response.razorpay_order_id,
               razorpay_payment_id: response.razorpay_payment_id,
               razorpay_signature: response.razorpay_signature,
-              plan,
+              plan: planKey,
             });
             if (result?.success) {
               localStorage.setItem('tt_company', JSON.stringify(result.company));
               onPaymentSuccess(result.company);
             }
-          } catch (e) {
+          } catch {
             setError('Payment verification failed. Contact sumit@highflow.in');
           }
         },
@@ -105,84 +101,81 @@ export default function Paywall({ company, user, onPaymentSuccess, onLogout }) {
   }
 
   return (
-    <div className="auth-page">
-      <div style={{ maxWidth: 720, margin: '0 auto', padding: '40px 20px', textAlign: 'center' }}>
-        <div style={{
-          width: 64, height: 64,
-          background: 'linear-gradient(135deg, #4f46e5, #7c3aed)',
-          borderRadius: '50%',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          margin: '0 auto 20px', fontSize: 28,
-          boxShadow: '0 8px 24px rgba(79,70,229,0.35)',
-        }}>🔒</div>
+    <div className="auth-page" style={{ overflowY: 'auto' }}>
+      <div style={{ maxWidth: 700, margin: '0 auto', padding: '36px 20px', textAlign: 'center' }}>
 
-        <h2 style={{ fontSize: 22, fontWeight: 800, color: '#1e1b4b', marginBottom: 8 }}>
+        <div style={{ width: 60, height: 60, background: 'linear-gradient(135deg,#4f46e5,#7c3aed)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', fontSize: 26, boxShadow: '0 6px 20px rgba(79,70,229,0.35)' }}>🔒</div>
+
+        <h2 style={{ fontSize: 20, fontWeight: 800, color: '#1e1b4b', marginBottom: 6 }}>
           Your free trial has ended
         </h2>
-        <p style={{ color: '#6b7280', fontSize: 14, marginBottom: 24, lineHeight: 1.6 }}>
-          {company?.company_name && <><strong>{company.company_name}</strong>'s 30-day trial is over.<br /></>}
-          Unlimited tasks & users on all paid plans. WhatsApp reminders included.
+        <p style={{ color: '#6b7280', fontSize: 13, marginBottom: 20, lineHeight: 1.6 }}>
+          {company?.company_name && <><strong>{company.company_name}</strong>'s 30-day trial is over. </>}
+          Choose a plan to continue — unlimited tasks, users & stakeholders on all plans.
         </p>
 
-        {error && <div className="auth-error">{error}</div>}
+        {error && <div className="auth-error" style={{ marginBottom: 16 }}>{error}</div>}
 
-        {/* Toggle monthly / yearly */}
-        <div style={{ display: 'flex', justifyContent: 'center', gap: 0, marginBottom: 24, background: '#f3f4f6', borderRadius: 10, padding: 4, width: 'fit-content', margin: '0 auto 24px' }}>
-          <button
-            onClick={() => setShowYearly(false)}
-            style={{ padding: '7px 20px', borderRadius: 8, border: 'none', fontWeight: 700, fontSize: 13, cursor: 'pointer', background: !showYearly ? '#fff' : 'transparent', color: !showYearly ? '#312e81' : '#6b7280', boxShadow: !showYearly ? '0 1px 4px rgba(0,0,0,0.1)' : 'none' }}
-          >Monthly</button>
-          <button
-            onClick={() => setShowYearly(true)}
-            style={{ padding: '7px 20px', borderRadius: 8, border: 'none', fontWeight: 700, fontSize: 13, cursor: 'pointer', background: showYearly ? '#fff' : 'transparent', color: showYearly ? '#16a34a' : '#6b7280', boxShadow: showYearly ? '0 1px 4px rgba(0,0,0,0.1)' : 'none' }}
-          >Yearly <span style={{ fontSize: 11, color: '#16a34a', fontWeight: 800 }}>SAVE 27%</span></button>
+        {/* Monthly / Yearly toggle */}
+        <div style={{ display: 'inline-flex', background: '#f3f4f6', borderRadius: 10, padding: 4, marginBottom: 22 }}>
+          <button onClick={() => setYearly(false)} style={{ padding: '7px 22px', borderRadius: 8, border: 'none', fontWeight: 700, fontSize: 13, cursor: 'pointer', background: !yearly ? '#fff' : 'transparent', color: !yearly ? '#312e81' : '#6b7280', boxShadow: !yearly ? '0 1px 4px rgba(0,0,0,0.1)' : 'none' }}>
+            Monthly
+          </button>
+          <button onClick={() => setYearly(true)} style={{ padding: '7px 22px', borderRadius: 8, border: 'none', fontWeight: 700, fontSize: 13, cursor: 'pointer', background: yearly ? '#fff' : 'transparent', color: yearly ? '#16a34a' : '#6b7280', boxShadow: yearly ? '0 1px 4px rgba(0,0,0,0.1)' : 'none' }}>
+            Yearly &nbsp;<span style={{ fontSize: 10, fontWeight: 800, color: '#16a34a', background: '#dcfce7', padding: '2px 6px', borderRadius: 10 }}>10% OFF</span>
+          </button>
         </div>
 
-        {showYearly ? (
-          <div style={{ maxWidth: 300, margin: '0 auto 24px' }}>
-            <div style={{ border: '2px solid #16a34a', borderRadius: 14, padding: '24px 20px', background: '#f0fdf4' }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: '#16a34a', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>Yearly — Best Value</div>
-              <div style={{ fontSize: 36, fontWeight: 800, color: '#15803d' }}>₹6,999<span style={{ fontSize: 14, fontWeight: 400, color: '#6b7280' }}>/year</span></div>
-              <div style={{ fontSize: 12, color: '#166534', marginTop: 6, marginBottom: 16 }}>6,000 WA messages/year · Unlimited tasks & users</div>
-              <button
-                onClick={() => handlePay('yearly')}
-                disabled={loading !== null}
-                className="btn btn-success"
-                style={{ width: '100%', justifyContent: 'center', padding: '12px', opacity: loading !== null && loading !== 'yearly' ? 0.5 : 1 }}
-              >{loading === 'yearly' ? 'Opening...' : 'Pay ₹6,999/year'}</button>
-            </div>
-          </div>
-        ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12, marginBottom: 24 }}>
-            {PLAN_LIST.map(p => (
-              <div key={p.key} style={{ position: 'relative', border: `2px solid ${p.border}`, borderRadius: 14, padding: '20px 16px', background: '#fff' }}>
+        {/* Plans grid */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 12, marginBottom: 20 }}>
+          {PLANS.map(p => {
+            const planKey = yearly ? p.yearlyKey : p.key;
+            const isLoading = loading === planKey;
+            const disabled = loading !== null;
+            return (
+              <div key={p.key} style={{ position: 'relative', border: `2px solid ${p.border}`, borderRadius: 14, padding: '18px 14px', background: '#fff', textAlign: 'left' }}>
                 {p.popular && (
-                  <div style={{ position: 'absolute', top: -11, left: '50%', transform: 'translateX(-50%)', background: p.color, color: '#fff', fontSize: 10, fontWeight: 800, padding: '3px 12px', borderRadius: 20, whiteSpace: 'nowrap' }}>
+                  <div style={{ position: 'absolute', top: -11, left: '50%', transform: 'translateX(-50%)', background: p.color, color: '#fff', fontSize: 10, fontWeight: 800, padding: '2px 12px', borderRadius: 20, whiteSpace: 'nowrap' }}>
                     MOST POPULAR
                   </div>
                 )}
-                <div style={{ fontSize: 11, fontWeight: 700, color: p.color, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4 }}>{p.label}</div>
-                <div style={{ fontSize: 28, fontWeight: 800, color: p.color }}>
-                  {p.price}<span style={{ fontSize: 13, fontWeight: 400, color: '#6b7280' }}>{p.period}</span>
-                </div>
-                <div style={{ fontSize: 12, color: '#555', marginTop: 6, marginBottom: 14 }}>{p.wa}</div>
-                <button
-                  onClick={() => handlePay(p.key)}
-                  disabled={loading !== null}
-                  style={{
-                    width: '100%', padding: '10px', borderRadius: 8, border: 'none',
-                    background: p.color, color: '#fff', fontWeight: 700, fontSize: 13,
-                    cursor: loading !== null ? 'not-allowed' : 'pointer',
-                    opacity: loading !== null && loading !== p.key ? 0.5 : 1,
-                  }}
-                >{loading === p.key ? 'Opening...' : `Pay ${p.price}`}</button>
-              </div>
-            ))}
-          </div>
-        )}
 
-        <p style={{ fontSize: 12, color: '#9ca3af', marginBottom: 16 }}>
-          All plans: Unlimited tasks, users & stakeholders · Secure payment via Razorpay
+                <div style={{ fontSize: 11, fontWeight: 700, color: p.color, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4 }}>{p.label}</div>
+
+                {yearly ? (
+                  <>
+                    <div style={{ fontSize: 24, fontWeight: 800, color: p.color }}>
+                      {fmt(p.yearlyPrice)}<span style={{ fontSize: 12, fontWeight: 400, color: '#9ca3af' }}>/yr</span>
+                    </div>
+                    <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
+                      ≈ {fmt(p.effectiveMonthly)}/mo &nbsp;
+                      <span style={{ color: '#16a34a', fontWeight: 700 }}>10% off</span>
+                    </div>
+                  </>
+                ) : (
+                  <div style={{ fontSize: 24, fontWeight: 800, color: p.color }}>
+                    {fmt(p.price)}<span style={{ fontSize: 12, fontWeight: 400, color: '#9ca3af' }}>/mo</span>
+                  </div>
+                )}
+
+                <div style={{ fontSize: 12, color: '#555', marginTop: 6, marginBottom: 14 }}>
+                  📲 {yearly ? p.waYearly.toLocaleString('en-IN') : p.wa.toLocaleString('en-IN')} WA messages/{yearly ? 'year' : 'month'}
+                </div>
+
+                <button
+                  onClick={() => handlePay(planKey)}
+                  disabled={disabled}
+                  style={{ width: '100%', padding: '10px', borderRadius: 8, border: 'none', background: p.color, color: '#fff', fontWeight: 700, fontSize: 13, cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled && !isLoading ? 0.5 : 1 }}
+                >
+                  {isLoading ? 'Opening...' : `Pay ${yearly ? fmt(p.yearlyPrice) : fmt(p.price)}`}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+
+        <p style={{ fontSize: 11, color: '#9ca3af', marginBottom: 16 }}>
+          All plans: Unlimited tasks · Unlimited users · Unlimited stakeholders · Secure payments via Razorpay
         </p>
 
         <button className="auth-link" onClick={onLogout} style={{ color: '#9ca3af' }}>Sign out</button>

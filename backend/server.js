@@ -29,13 +29,21 @@ const razorpay = new Razorpay({
 const TRIAL_LIMITS = { max_users: 3, max_stakeholders: 10, max_tasks: 200, wa_limit: 100 };
 
 // Paid plans — unlimited tasks/users/stakeholders, WA messages per month vary
+// Ratio: ~1.5 WA per ₹ across all plans
 const PLANS = {
-  basic:   { amount: 19900,  label: '₹199/month',   days: 30,  wa_limit: 300  },
-  starter: { amount: 29900,  label: '₹299/month',   days: 30,  wa_limit: 500  },
-  growth:  { amount: 149900, label: '₹1,499/month', days: 30,  wa_limit: 2000 },
-  pro:     { amount: 299900, label: '₹2,999/month', days: 30,  wa_limit: -1   }, // -1 = unlimited
-  yearly:  { amount: 699900, label: '₹6,999/year',  days: 365, wa_limit: 6000 },
-  monthly: { amount: 29900,  label: '₹299/month',   days: 30,  wa_limit: 500  }, // legacy alias = starter
+  // Monthly
+  basic:      { amount: 19900,   label: '₹199/month',   days: 30,  wa_limit: 300  },
+  starter:    { amount: 29900,   label: '₹299/month',   days: 30,  wa_limit: 500  },
+  growth:     { amount: 100000,  label: '₹1,000/month', days: 30,  wa_limit: 1500 },
+  pro:        { amount: 200000,  label: '₹2,000/month', days: 30,  wa_limit: 3000 },
+  // Yearly (10% off, 12× WA allowance)
+  basic_yr:   { amount: 214900,  label: '₹2,149/year',  days: 365, wa_limit: 3600  }, // 199×12×0.9
+  starter_yr: { amount: 322900,  label: '₹3,229/year',  days: 365, wa_limit: 6000  }, // 299×12×0.9
+  growth_yr:  { amount: 1080000, label: '₹10,800/year', days: 365, wa_limit: 18000 }, // 1000×12×0.9
+  pro_yr:     { amount: 2160000, label: '₹21,600/year', days: 365, wa_limit: 36000 }, // 2000×12×0.9
+  // Legacy aliases (existing customers)
+  monthly:    { amount: 29900,   label: '₹299/month',   days: 30,  wa_limit: 500  },
+  yearly:     { amount: 699900,  label: '₹6,999/year',  days: 365, wa_limit: 6000 },
 };
 
 const pool = new Pool({
