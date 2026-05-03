@@ -39,6 +39,7 @@ const del = (path) => request(path, { method: 'DELETE' });
 export const api = {
   login: (email, password) => post('/auth/login', { email, password }),
   signup: (body) => post('/auth/signup', body),
+  googleMobileAuth: (access_token, company_name) => post('/auth/google-mobile', { access_token, company_name }),
 
   getDashboard: (params = {}) => {
     const q = new URLSearchParams(params).toString();

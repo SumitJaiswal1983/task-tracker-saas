@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, FlatList, StyleSheet, TouchableOpacity,
   TextInput, Alert, Modal, ScrollView, KeyboardAvoidingView, Platform,
-  ActivityIndicator, RefreshControl, Share, Clipboard,
+  ActivityIndicator, RefreshControl, Share, Clipboard, Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, shadow, radius } from '../theme';
@@ -152,11 +152,20 @@ function SectionForm({ visible, onClose, onSaved }) {
 }
 
 // ── Main screen ──────────────────────────────────────────────────
-const HOURS = Array.from({ length: 24 }, (_, i) => {
-  const ampm = i < 12 ? 'AM' : 'PM';
-  const h = i === 0 ? 12 : i > 12 ? i - 12 : i;
-  return { value: i, label: `${h}:00 ${ampm}` };
-});
+const HOURS = [
+  { value: -1, label: '🔕 Off' },
+  ...Array.from({ length: 24 }, (_, i) => {
+    const ampm = i < 12 ? 'AM' : 'PM';
+    const h = i === 0 ? 12 : i > 12 ? i - 12 : i;
+    return { value: i, label: `${h}:00 ${ampm}` };
+  }),
+];
+
+const UPGRADE_PLANS = [
+  { label: 'Basic', price: '₹199/mo', wa: '300 WA', color: '#6b7280' },
+  { label: 'Starter', price: '₹299/mo', wa: '500 WA', color: '#4f46e5', popular: true },
+  { label: 'Growth', price: '₹599/mo', wa: '1K WA', color: '#0891b2' },
+];
 const DAY_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 const DAY_LABELS = { mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat', sun: 'Sun' };
 
@@ -395,6 +404,33 @@ export default function PeopleScreen() {
               })()}
             </View>
           )}
+
+          {/* Upgrade plans */}
+          <View style={s.settingsCard}>
+            <Text style={s.settingsCardTitle}>🚀 Upgrade Plan</Text>
+            <Text style={{ fontSize: 12, color: '#666', marginBottom: 14 }}>Tap a plan to upgrade on the web app</Text>
+            <View style={{ gap: 10 }}>
+              {UPGRADE_PLANS.map(p => (
+                <TouchableOpacity
+                  key={p.label}
+                  onPress={() => Linking.openURL('https://task-tracker-backend-production-94c1.up.railway.app')}
+                  style={{
+                    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+                    borderWidth: 2, borderColor: p.popular ? p.color : '#e5e7eb',
+                    borderRadius: 10, padding: 14,
+                    backgroundColor: p.popular ? '#f5f3ff' : '#fff',
+                  }}
+                  activeOpacity={0.75}
+                >
+                  <View>
+                    <Text style={{ fontSize: 13, fontWeight: '800', color: p.color }}>{p.label}</Text>
+                    <Text style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>💬 {p.wa}/mo</Text>
+                  </View>
+                  <Text style={{ fontSize: 16, fontWeight: '800', color: p.color }}>{p.price}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
 
           {/* Notification schedule */}
           <View style={s.settingsCard}>

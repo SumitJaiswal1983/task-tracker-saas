@@ -2,10 +2,13 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, FlatList, StyleSheet, TouchableOpacity,
   TextInput, RefreshControl, ActivityIndicator, Alert,
-  Modal, ScrollView, Share,
+  Modal, ScrollView,
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
+import * as XLSX from 'xlsx';
 import { colors, shadow, radius } from '../theme';
 import { api } from '../api';
 
@@ -523,19 +526,28 @@ export default function TasksScreen({ sheetName, taskFilter }) {
 
   async function handleExport() {
     try {
-      const headers = 'Task,Stakeholder,Section,Sheet,Status,Due Date,Completion Date,Score,Remarks';
-      const rows = filtered.map(t => [
-        `"${(t.task_description || '').replace(/"/g, '""')}"`,
-        `"${(t.stakeholder || '').replace(/"/g, '""')}"`,
-        `"${(t.section || '').replace(/"/g, '""')}"`,
-        `"${(t.sheet_name || '').replace(/"/g, '""')}"`,
-        t.achievement_status || '',
-        t.initial_target_date || '',
-        t.completion_date || '',
-        t.score ?? '',
-        `"${(t.remarks || '').replace(/"/g, '""')}"`,
-      ].join(',')).join('\n');
-      await Share.share({ message: headers + '\n' + rows, title: 'Tasks Export' });
+      const data = filtered.map(t => ({
+        Task: t.task_description || '',
+        Stakeholder: t.stakeholder || '',
+        Section: t.section || '',
+        Sheet: t.sheet_name || '',
+        Status: t.achievement_status || '',
+        'Due Date': t.initial_target_date || '',
+        'Completion Date': t.completion_date || '',
+        Score: t.score ?? '',
+        Remarks: t.remarks || '',
+      }));
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.json_to_sheet(data);
+      XLSX.utils.book_append_sheet(wb, ws, 'Tasks');
+      const wbout = XLSX.write(wb, { type: 'base64', bookType: 'xlsx' });
+      const uri = FileSystem.cacheDirectory + 'tasks.xlsx';
+      await FileSystem.writeAsStringAsync(uri, wbout, { encoding: FileSystem.EncodingType.Base64 });
+      await Sharing.shareAsync(uri, {
+        mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        dialogTitle: 'Export Tasks',
+        UTI: 'com.microsoft.excel.xlsx',
+      });
     } catch (err) {
       Alert.alert('Export Error', err.message);
     }
@@ -556,7 +568,7 @@ export default function TasksScreen({ sheetName, taskFilter }) {
           clearButtonMode="while-editing"
         />
         <TouchableOpacity style={s.exportBtn} onPress={handleExport}>
-          <Text style={s.exportBtnText}>⬇ CSV</Text>
+          <Text style={s.exportBtnText}>⬇ Excel</Text>
         </TouchableOpacity>
         <TouchableOpacity style={s.addBtn} onPress={openNew}>
           <Text style={s.addBtnText}>+ New</Text>

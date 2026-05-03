@@ -23,7 +23,7 @@ function TrialBanner({ company }) {
   return (
     <View style={[styles.trialBanner, urgent && styles.trialBannerUrgent]}>
       <Text style={styles.trialBannerText}>
-        {days === 0 ? '⚠️ Trial expires today!' : `⏰ Trial: ${days} day${days === 1 ? '' : 's'} left — Upgrade from ₹799/mo`}
+        {days === 0 ? '⚠️ Trial expires today!' : `⏰ Trial: ${days} day${days === 1 ? '' : 's'} left — Upgrade now`}
       </Text>
     </View>
   );

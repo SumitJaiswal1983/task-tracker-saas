@@ -456,6 +456,50 @@ app.post('/api/auth/google', async (req, res) => {
   }
 });
 
+app.post('/api/auth/google-mobile', async (req, res) => {
+  try {
+    const { access_token, company_name } = req.body;
+    if (!access_token) return res.status(400).json({ error: 'Access token required' });
+
+    const infoRes = await fetch(`https://www.googleapis.com/oauth2/v1/userinfo?access_token=${access_token}`);
+    const info = await infoRes.json();
+    if (!info.email) return res.status(400).json({ error: 'Invalid Google token' });
+
+    const email = info.email.toLowerCase();
+    const name = info.name || email.split('@')[0];
+
+    const { rows } = await pool.query('SELECT * FROM tt_users WHERE email=$1', [email]);
+    const existing = rows[0];
+
+    if (!existing) {
+      if (!company_name?.trim()) return res.json({ needs_company: true, email, name });
+      const { rows: compRows } = await pool.query('INSERT INTO tt_companies (name, email) VALUES ($1,$2) RETURNING *', [company_name.trim(), email]);
+      const company = compRows[0];
+      for (const section of DEFAULT_SECTIONS) {
+        await pool.query('INSERT INTO tt_sections (company_id,name) VALUES ($1,$2) ON CONFLICT DO NOTHING', [company.id, section]);
+      }
+      const hash = await bcrypt.hash(crypto.randomBytes(24).toString('hex'), 8);
+      const { rows: uRows } = await pool.query(
+        `INSERT INTO tt_users (company_id,name,email,password,role) VALUES ($1,$2,$3,$4,'admin') RETURNING id,name,email,role`,
+        [company.id, name, email, hash]
+      );
+      const user = uRows[0];
+      const token = jwt.sign({ id: user.id, email, name: user.name, role: 'admin', company_id: company.id }, JWT_SECRET, { expiresIn: '7d' });
+      return res.json({ token, user, company: trialInfo(company) });
+    }
+
+    let company = null;
+    if (existing.company_id) {
+      const { rows: cRows } = await pool.query('SELECT * FROM tt_companies WHERE id=$1', [existing.company_id]);
+      company = cRows[0] ? trialInfo(cRows[0]) : null;
+    }
+    const token = jwt.sign({ id: existing.id, email, name: existing.name, role: existing.role, company_id: existing.company_id || null }, JWT_SECRET, { expiresIn: '7d' });
+    res.json({ token, user: { id: existing.id, name: existing.name, email, role: existing.role }, company });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/auth/me', auth, async (req, res) => {
   try {
     const { rows } = await pool.query('SELECT id,name,email,role,created_at FROM tt_users WHERE id=$1', [req.user.id]);

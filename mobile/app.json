@@ -3,6 +3,7 @@
     "name": "Task Delegation Tracker",
     "slug": "task-delegation-tracker",
     "version": "1.0.0",
+    "scheme": "tasktracker",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -22,7 +23,7 @@
         "backgroundColor": "#312e81"
       },
       "package": "com.highflow.tasktracker",
-      "versionCode": 11
+      "versionCode": 12
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -34,7 +35,8 @@
     },
     "owner": "sumit_jaiswal",
     "plugins": [
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      "expo-web-browser"
     ]
   }
 }
