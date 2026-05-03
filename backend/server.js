@@ -30,11 +30,12 @@ const TRIAL_LIMITS = { max_users: 3, max_stakeholders: 10, max_tasks: 200, wa_li
 
 // Paid plans — unlimited tasks/users/stakeholders, WA messages per month vary
 const PLANS = {
-  monthly: { amount: 79900,  label: '₹799/month',   days: 30,  wa_limit: 500  }, // legacy alias = starter
-  starter: { amount: 79900,  label: '₹799/month',   days: 30,  wa_limit: 500  },
+  basic:   { amount: 19900,  label: '₹199/month',   days: 30,  wa_limit: 300  },
+  starter: { amount: 29900,  label: '₹299/month',   days: 30,  wa_limit: 500  },
   growth:  { amount: 149900, label: '₹1,499/month', days: 30,  wa_limit: 2000 },
   pro:     { amount: 299900, label: '₹2,999/month', days: 30,  wa_limit: -1   }, // -1 = unlimited
   yearly:  { amount: 699900, label: '₹6,999/year',  days: 365, wa_limit: 6000 },
+  monthly: { amount: 29900,  label: '₹299/month',   days: 30,  wa_limit: 500  }, // legacy alias = starter
 };
 
 const pool = new Pool({

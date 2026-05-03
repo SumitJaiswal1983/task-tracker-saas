@@ -122,10 +122,11 @@ export default function Settings({ company, onCompanyUpdate }) {
                 </p>
                 <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                   {[
-                    { plan: 'starter', label: '₹799/mo', sub: '500 WA/mo' },
-                    { plan: 'growth', label: '₹1,499/mo', sub: '2,000 WA/mo', highlight: true },
-                    { plan: 'pro', label: '₹2,999/mo', sub: 'Unlimited WA' },
-                    { plan: 'yearly', label: '₹6,999/yr', sub: '6,000 WA/yr' },
+                    { plan: 'basic',   label: '₹199/mo',   sub: '300 WA/mo' },
+                    { plan: 'starter', label: '₹299/mo',   sub: '500 WA/mo', highlight: true },
+                    { plan: 'growth',  label: '₹1,499/mo', sub: '2,000 WA/mo' },
+                    { plan: 'pro',     label: '₹2,999/mo', sub: 'Unlimited WA' },
+                    { plan: 'yearly',  label: '₹6,999/yr', sub: '6,000 WA/yr' },
                   ].map(p => (
                     <div key={p.plan} style={{
                       border: `2px solid ${p.highlight ? '#312e81' : '#e5e7eb'}`,
