@@ -1,4 +1,4 @@
-export default function TrialBanner({ company }) {
+export default function TrialBanner({ company, onUpgrade }) {
   if (!company || company.subscription_active || company.is_expired) return null;
 
   const days = company.days_remaining;
@@ -20,7 +20,12 @@ export default function TrialBanner({ company }) {
         ? 'Your trial expires today.'
         : `Free trial: ${days} day${days === 1 ? '' : 's'} remaining.`}
       {' '}
-      <span style={{ opacity: 0.85 }}>Upgrade now to continue.</span>
+      <span
+        onClick={onUpgrade}
+        style={{ opacity: 0.95, textDecoration: 'underline', cursor: 'pointer', fontWeight: 700 }}
+      >
+        Upgrade now to continue.
+      </span>
     </div>
   );
 }

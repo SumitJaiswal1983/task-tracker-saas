@@ -85,7 +85,7 @@ export default function App() {
 
   return (
     <>
-      <TrialBanner company={company} />
+      <TrialBanner company={company} onUpgrade={() => setTab('settings')} />
 
       <header className="header">
         <div className="header-brand">
