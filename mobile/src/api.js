@@ -68,7 +68,8 @@ export const api = {
   updatePerson: (id, body) => put(`/stakeholders/${id}`, body),
   deletePerson: (id) => del(`/stakeholders/${id}`),
 
-  sendOverdueReminders: () => post('/notifications/send-overdue', {}),
+  sendOverdueReminders: (stakeholderIds) => post('/notifications/send-overdue', { stakeholderIds: stakeholderIds || null }),
+  createPaymentOrder: (body) => post('/payment/create-order', body),
   getNotificationStatus: () => get('/notifications/status'),
 
   getUsers: () => get('/users').then(r => Array.isArray(r) ? r : []),

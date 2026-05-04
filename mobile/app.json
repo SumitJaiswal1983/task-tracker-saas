@@ -23,7 +23,14 @@
         "backgroundColor": "#312e81"
       },
       "package": "com.highflow.tasktracker",
-      "versionCode": 12
+      "versionCode": 18,
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "data": [{ "scheme": "com.highflow.tasktracker" }],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"

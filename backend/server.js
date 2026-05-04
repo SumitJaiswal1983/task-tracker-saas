@@ -1009,6 +1009,97 @@ app.post('/api/payment/webhook', async (req, res) => {
   }
 });
 
+// Mobile payment checkout page
+app.get('/api/payment/mobile-checkout', async (req, res) => {
+  try {
+    const { token, plan } = req.query;
+    if (!token || !plan) return res.status(400).send('Missing token or plan');
+
+    let user;
+    try { user = jwt.verify(token, JWT_SECRET); } catch { return res.status(401).send('Invalid token'); }
+    if (user.role === 'superadmin') return res.status(400).send('Superadmin cannot purchase');
+
+    const planConfig = PLANS[plan];
+    if (!planConfig) return res.status(400).send('Invalid plan');
+
+    const order = await razorpay.orders.create({
+      amount: planConfig.amount,
+      currency: 'INR',
+      receipt: `mo_${user.company_id}_${Date.now()}`,
+      notes: { company_id: user.company_id, plan },
+    });
+
+    const keyId = process.env.RAZORPAY_KEY_ID;
+    const backendUrl = process.env.BACKEND_URL || 'https://task-tracker-backend-production-94c1.up.railway.app';
+
+    res.send(`<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Upgrade Plan</title>
+  <style>
+    body { font-family: sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #312e81; }
+    .card { background: #fff; border-radius: 16px; padding: 32px 24px; text-align: center; max-width: 340px; width: 90%; }
+    h2 { color: #312e81; margin: 0 0 8px; }
+    p { color: #6b7280; margin: 0 0 24px; font-size: 14px; }
+    .price { font-size: 28px; font-weight: 800; color: #312e81; margin-bottom: 4px; }
+    .plan-name { font-size: 14px; color: #9ca3af; margin-bottom: 24px; }
+    button { background: #312e81; color: #fff; border: none; border-radius: 10px; padding: 14px 32px; font-size: 16px; font-weight: 700; width: 100%; cursor: pointer; }
+    .msg { margin-top: 20px; font-size: 14px; color: #16a34a; display: none; }
+    .err { margin-top: 20px; font-size: 14px; color: #dc2626; display: none; }
+  </style>
+</head>
+<body>
+<div class="card">
+  <h2>Upgrade Plan</h2>
+  <div class="price">${planConfig.label}</div>
+  <p>Secure payment via Razorpay</p>
+  <button onclick="startPayment()">Pay Now</button>
+  <div class="msg" id="msg">✅ Payment successful! Your plan is now active.</div>
+  <div class="err" id="err"></div>
+</div>
+<script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+<script>
+function startPayment() {
+  var options = {
+    key: "${keyId}",
+    amount: ${order.amount},
+    currency: "INR",
+    name: "Task Delegation Tracker",
+    description: "${planConfig.label}",
+    order_id: "${order.id}",
+    handler: function(response) {
+      fetch("${backendUrl}/api/payment/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer ${token}" },
+        body: JSON.stringify({
+          razorpay_order_id: response.razorpay_order_id,
+          razorpay_payment_id: response.razorpay_payment_id,
+          razorpay_signature: response.razorpay_signature,
+          plan: "${plan}"
+        })
+      })
+      .then(r => r.json())
+      .then(d => {
+        if (d.success) { document.getElementById("msg").style.display = "block"; }
+        else { document.getElementById("err").innerText = d.error || "Verification failed"; document.getElementById("err").style.display = "block"; }
+      })
+      .catch(() => { document.getElementById("err").innerText = "Network error"; document.getElementById("err").style.display = "block"; });
+    },
+    theme: { color: "#312e81" }
+  };
+  var rzp = new Razorpay(options);
+  rzp.open();
+}
+window.onload = startPayment;
+</script>
+</body>
+</html>`);
+  } catch (err) {
+    res.status(500).send('Error: ' + err.message);
+  }
+});
+
 // ========================
 // WHATSAPP NOTIFICATIONS
 // ========================

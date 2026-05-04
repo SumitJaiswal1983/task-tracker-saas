@@ -5,8 +5,12 @@ import {
   ActivityIndicator, RefreshControl, Share, Clipboard, Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as WebBrowser from 'expo-web-browser';
 import { colors, shadow, radius } from '../theme';
 import { api } from '../api';
+
+const BACKEND = 'https://task-tracker-backend-production-94c1.up.railway.app';
 
 // ── Person add/edit modal ────────────────────────────────────────
 function PersonForm({ visible, person, onClose, onSaved }) {
@@ -162,9 +166,9 @@ const HOURS = [
 ];
 
 const UPGRADE_PLANS = [
-  { label: 'Basic', price: '₹199/mo', wa: '300 WA', color: '#6b7280' },
-  { label: 'Starter', price: '₹299/mo', wa: '500 WA', color: '#4f46e5', popular: true },
-  { label: 'Growth', price: '₹599/mo', wa: '1K WA', color: '#0891b2' },
+  { label: 'Basic',   mo: '₹199/mo', yr: '₹2,149/yr', wa: '300 WA',  color: '#6b7280' },
+  { label: 'Starter', mo: '₹299/mo', yr: '₹3,229/yr', wa: '500 WA',  color: '#4f46e5', popular: true },
+  { label: 'Growth',  mo: '₹599/mo', yr: '₹6,469/yr', wa: '1K WA',   color: '#0891b2' },
 ];
 const DAY_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 const DAY_LABELS = { mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat', sun: 'Sun' };
@@ -178,6 +182,8 @@ export default function PeopleScreen() {
   const [showPersonModal, setShowPersonModal] = useState(false);
   const [showSectionModal, setShowSectionModal] = useState(false);
   const [sending, setSending] = useState(false);
+  const [showSendModal, setShowSendModal] = useState(false);
+  const [selectedWaIds, setSelectedWaIds] = useState([]);
   const [tab, setTab] = useState('people');
 
   // Settings state
@@ -186,6 +192,7 @@ export default function PeopleScreen() {
   const [notifyDays, setNotifyDays] = useState(DAY_KEYS);
   const [savingSettings, setSavingSettings] = useState(false);
   const [settingsSaved, setSettingsSaved] = useState(false);
+  const [planYearly, setPlanYearly] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -226,22 +233,28 @@ export default function PeopleScreen() {
 
   useEffect(() => { load(); }, [load]);
 
-  async function sendNow() {
-    Alert.alert('Send WhatsApp', 'Send reminders to all stakeholders now?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Send', onPress: async () => {
-          setSending(true);
-          try {
-            const res = await api.sendOverdueReminders();
-            Alert.alert('Done', res.sent > 0
-              ? `✅ ${res.sent} reminder(s) sent!`
-              : 'No pending tasks or no WhatsApp numbers set.');
-          } catch (e) { Alert.alert('Error', e.message); }
-          finally { setSending(false); }
-        }
-      }
-    ]);
+  function sendNow() {
+    const wapeople = people.filter(p => p.whatsapp_number);
+    if (wapeople.length === 0) {
+      Alert.alert('No WhatsApp numbers', 'Add WhatsApp numbers to people first.');
+      return;
+    }
+    setSelectedWaIds(wapeople.map(p => p.id));
+    setShowSendModal(true);
+  }
+
+  async function confirmSend() {
+    setShowSendModal(false);
+    setSending(true);
+    try {
+      const ids = selectedWaIds.length === people.filter(p => p.whatsapp_number).length
+        ? null : selectedWaIds;
+      const res = await api.sendOverdueReminders(ids);
+      Alert.alert('Done', res.sent > 0
+        ? `✅ ${res.sent} reminder(s) sent!`
+        : 'No pending tasks or no WhatsApp numbers set.');
+    } catch (e) { Alert.alert('Error', e.message); }
+    finally { setSending(false); }
   }
 
   async function deletePerson(p) {
@@ -408,12 +421,34 @@ export default function PeopleScreen() {
           {/* Upgrade plans */}
           <View style={s.settingsCard}>
             <Text style={s.settingsCardTitle}>🚀 Upgrade Plan</Text>
-            <Text style={{ fontSize: 12, color: '#666', marginBottom: 14 }}>Tap a plan to upgrade on the web app</Text>
+            {/* Monthly / Yearly toggle */}
+            <View style={{ flexDirection: 'row', backgroundColor: '#f3f4f6', borderRadius: 8, padding: 3, marginBottom: 14, alignSelf: 'flex-start' }}>
+              <TouchableOpacity
+                onPress={() => setPlanYearly(false)}
+                style={{ paddingHorizontal: 16, paddingVertical: 6, borderRadius: 6, backgroundColor: !planYearly ? '#fff' : 'transparent' }}
+              >
+                <Text style={{ fontSize: 13, fontWeight: '700', color: !planYearly ? '#312e81' : '#6b7280' }}>Monthly</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => setPlanYearly(true)}
+                style={{ paddingHorizontal: 16, paddingVertical: 6, borderRadius: 6, backgroundColor: planYearly ? '#fff' : 'transparent' }}
+              >
+                <Text style={{ fontSize: 13, fontWeight: '700', color: planYearly ? '#312e81' : '#6b7280' }}>Yearly 🏷️</Text>
+              </TouchableOpacity>
+            </View>
+            {planYearly && (
+              <Text style={{ fontSize: 11, color: '#16a34a', fontWeight: '600', marginBottom: 10 }}>Save ~10% with yearly billing</Text>
+            )}
             <View style={{ gap: 10 }}>
               {UPGRADE_PLANS.map(p => (
                 <TouchableOpacity
                   key={p.label}
-                  onPress={() => Linking.openURL('https://task-tracker-backend-production-94c1.up.railway.app')}
+                  onPress={async () => {
+                    const token = await AsyncStorage.getItem('tt_token');
+                    if (!token) { Alert.alert('Error', 'Please login again'); return; }
+                    const planKey = (p.label.toLowerCase() + (planYearly ? '_yr' : ''));
+                    await WebBrowser.openBrowserAsync(`${BACKEND}/api/payment/mobile-checkout?token=${token}&plan=${planKey}`);
+                  }}
                   style={{
                     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
                     borderWidth: 2, borderColor: p.popular ? p.color : '#e5e7eb',
@@ -426,7 +461,7 @@ export default function PeopleScreen() {
                     <Text style={{ fontSize: 13, fontWeight: '800', color: p.color }}>{p.label}</Text>
                     <Text style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>💬 {p.wa}/mo</Text>
                   </View>
-                  <Text style={{ fontSize: 16, fontWeight: '800', color: p.color }}>{p.price}</Text>
+                  <Text style={{ fontSize: 16, fontWeight: '800', color: p.color }}>{planYearly ? p.yr : p.mo}</Text>
                 </TouchableOpacity>
               ))}
             </View>
@@ -485,6 +520,61 @@ export default function PeopleScreen() {
         onClose={() => setShowSectionModal(false)}
         onSaved={() => { setShowSectionModal(false); load(); }}
       />
+
+      {/* WhatsApp send selection modal */}
+      <Modal visible={showSendModal} transparent animationType="slide" onRequestClose={() => setShowSendModal(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, maxHeight: '80%' }}>
+            <Text style={{ fontSize: 16, fontWeight: '800', color: colors.text, marginBottom: 4 }}>Send WhatsApp Reminders</Text>
+            <Text style={{ fontSize: 13, color: colors.textMuted, marginBottom: 16 }}>Select people to send to:</Text>
+
+            {/* Select All row */}
+            <TouchableOpacity
+              onPress={() => {
+                const wapeople = people.filter(p => p.whatsapp_number);
+                setSelectedWaIds(selectedWaIds.length === wapeople.length ? [] : wapeople.map(p => p.id));
+              }}
+              style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#f3f4f6', marginBottom: 4 }}
+            >
+              <View style={{ width: 20, height: 20, borderRadius: 4, borderWidth: 2, borderColor: colors.primary, backgroundColor: selectedWaIds.length === people.filter(p => p.whatsapp_number).length ? colors.primary : '#fff', marginRight: 12, alignItems: 'center', justifyContent: 'center' }}>
+                {selectedWaIds.length === people.filter(p => p.whatsapp_number).length && <Text style={{ color: '#fff', fontSize: 12, fontWeight: '800' }}>✓</Text>}
+              </View>
+              <Text style={{ fontSize: 14, fontWeight: '700', color: colors.text }}>Select All</Text>
+            </TouchableOpacity>
+
+            <ScrollView style={{ maxHeight: 300 }}>
+              {people.filter(p => p.whatsapp_number).map(p => (
+                <TouchableOpacity
+                  key={p.id}
+                  onPress={() => setSelectedWaIds(prev => prev.includes(p.id) ? prev.filter(id => id !== p.id) : [...prev, p.id])}
+                  style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#f9fafb' }}
+                >
+                  <View style={{ width: 20, height: 20, borderRadius: 4, borderWidth: 2, borderColor: colors.primary, backgroundColor: selectedWaIds.includes(p.id) ? colors.primary : '#fff', marginRight: 12, alignItems: 'center', justifyContent: 'center' }}>
+                    {selectedWaIds.includes(p.id) && <Text style={{ color: '#fff', fontSize: 12, fontWeight: '800' }}>✓</Text>}
+                  </View>
+                  <View>
+                    <Text style={{ fontSize: 14, fontWeight: '600', color: colors.text }}>{p.name}</Text>
+                    <Text style={{ fontSize: 12, color: colors.textMuted }}>+{p.whatsapp_number}</Text>
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+
+            <View style={{ flexDirection: 'row', gap: 12, marginTop: 20 }}>
+              <TouchableOpacity onPress={() => setShowSendModal(false)} style={{ flex: 1, padding: 14, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, alignItems: 'center' }}>
+                <Text style={{ fontWeight: '700', color: colors.textMuted }}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={confirmSend}
+                disabled={selectedWaIds.length === 0}
+                style={{ flex: 1, padding: 14, borderRadius: radius.sm, backgroundColor: selectedWaIds.length === 0 ? '#9ca3af' : '#25D366', alignItems: 'center' }}
+              >
+                <Text style={{ fontWeight: '700', color: '#fff' }}>Send ({selectedWaIds.length})</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }

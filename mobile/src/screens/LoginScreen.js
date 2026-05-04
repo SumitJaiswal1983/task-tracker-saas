@@ -13,6 +13,42 @@ import { api } from '../api';
 WebBrowser.maybeCompleteAuthSession();
 
 const WEB_CLIENT_ID = '785722511551-itug55i0bpmip3gktogi4ni7e8evl86s.apps.googleusercontent.com';
+const ANDROID_CLIENT_ID = '785722511551-q8grutb9ljdst2inka30hflfqducfk9s.apps.googleusercontent.com';
+
+// Separate component so the Google hook is never called on Android without a real androidClientId
+function GoogleSignInButton({ onToken, loading }) {
+  const [request, response, promptAsync] = Google.useAuthRequest({
+    webClientId: WEB_CLIENT_ID,
+    androidClientId: ANDROID_CLIENT_ID,
+  });
+
+  useEffect(() => {
+    if (response?.type === 'success') {
+      const token = response.authentication?.accessToken || response.params?.access_token;
+      if (token) onToken(token);
+    } else if (response?.type === 'error') {
+      Alert.alert('Google Sign-in Failed', response.error?.message || 'Something went wrong');
+    }
+  }, [response]);
+
+  return (
+    <TouchableOpacity
+      style={[s.googleBtn, (!request || loading) && { opacity: 0.6 }]}
+      onPress={() => promptAsync()}
+      disabled={!request || loading}
+      activeOpacity={0.85}
+    >
+      {loading ? (
+        <ActivityIndicator color="#374151" size="small" />
+      ) : (
+        <>
+          <Text style={s.googleIcon}>G</Text>
+          <Text style={s.googleBtnText}>Sign in with Google</Text>
+        </>
+      )}
+    </TouchableOpacity>
+  );
+}
 
 export default function LoginScreen({ onLogin, onSignup }) {
   const [email, setEmail] = useState('');
@@ -23,17 +59,6 @@ export default function LoginScreen({ onLogin, onSignup }) {
   const [googleToken, setGoogleToken] = useState(null);
   const [companyName, setCompanyName] = useState('');
   const [googleInfo, setGoogleInfo] = useState({ name: '', email: '' });
-
-  const [request, response, promptAsync] = Google.useAuthRequest({ webClientId: WEB_CLIENT_ID });
-
-  useEffect(() => {
-    if (response?.type === 'success') {
-      const token = response.authentication?.accessToken || response.params?.access_token;
-      if (token) handleGoogleToken(token);
-    } else if (response?.type === 'error') {
-      Alert.alert('Google Sign-in Failed', response.error?.message || 'Something went wrong');
-    }
-  }, [response]);
 
   async function handleGoogleToken(accessToken) {
     setGLoading(true);
@@ -62,7 +87,8 @@ export default function LoginScreen({ onLogin, onSignup }) {
     } catch (err) {
       Alert.alert('Error', err.message);
     } finally {
-      setGLoading(false); }
+      setGLoading(false);
+    }
   }
 
   async function saveAndLogin(data) {
@@ -95,29 +121,17 @@ export default function LoginScreen({ onLogin, onSignup }) {
           <Text style={s.appSub}>Sign in to your account</Text>
         </View>
 
-        {/* Google Sign-in */}
-        <TouchableOpacity
-          style={[s.googleBtn, (!request || gLoading) && { opacity: 0.6 }]}
-          onPress={() => promptAsync()}
-          disabled={!request || gLoading}
-          activeOpacity={0.85}
-        >
-          {gLoading ? (
-            <ActivityIndicator color="#374151" size="small" />
-          ) : (
-            <>
-              <Text style={s.googleIcon}>G</Text>
-              <Text style={s.googleBtnText}>Sign in with Google</Text>
-            </>
-          )}
-        </TouchableOpacity>
-
-        {/* Divider */}
-        <View style={s.divider}>
-          <View style={s.dividerLine} />
-          <Text style={s.dividerText}>or</Text>
-          <View style={s.dividerLine} />
-        </View>
+        {/* Google Sign-in — only mounted when ANDROID_CLIENT_ID is set (or on iOS) */}
+        {(Platform.OS !== 'android' || ANDROID_CLIENT_ID) && (
+          <>
+            <GoogleSignInButton onToken={handleGoogleToken} loading={gLoading} />
+            <View style={s.divider}>
+              <View style={s.dividerLine} />
+              <Text style={s.dividerText}>or</Text>
+              <View style={s.dividerLine} />
+            </View>
+          </>
+        )}
 
         {/* Email/Password form */}
         <View style={s.card}>

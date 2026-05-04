@@ -540,9 +540,13 @@ export default function TasksScreen({ sheetName, taskFilter }) {
       const wb = XLSX.utils.book_new();
       const ws = XLSX.utils.json_to_sheet(data);
       XLSX.utils.book_append_sheet(wb, ws, 'Tasks');
-      const wbout = XLSX.write(wb, { type: 'base64', bookType: 'xlsx' });
+      const wbout = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+      const uint8 = new Uint8Array(wbout);
+      let binary = '';
+      for (let i = 0; i < uint8.length; i++) binary += String.fromCharCode(uint8[i]);
+      const base64 = btoa(binary);
       const uri = FileSystem.cacheDirectory + 'tasks.xlsx';
-      await FileSystem.writeAsStringAsync(uri, wbout, { encoding: FileSystem.EncodingType.Base64 });
+      await FileSystem.writeAsStringAsync(uri, base64, { encoding: 'base64' });
       await Sharing.shareAsync(uri, {
         mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         dialogTitle: 'Export Tasks',
