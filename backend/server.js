@@ -1032,6 +1032,8 @@ app.get('/api/payment/mobile-checkout', async (req, res) => {
     const keyId = process.env.RAZORPAY_KEY_ID;
     const backendUrl = process.env.BACKEND_URL || 'https://task-tracker-backend-production-94c1.up.railway.app';
 
+    const callbackUrl = `${backendUrl}/api/payment/mobile-callback?token=${encodeURIComponent(token)}&plan=${plan}`;
+
     res.send(`<!DOCTYPE html>
 <html>
 <head>
@@ -1043,10 +1045,7 @@ app.get('/api/payment/mobile-checkout', async (req, res) => {
     h2 { color: #312e81; margin: 0 0 8px; }
     p { color: #6b7280; margin: 0 0 24px; font-size: 14px; }
     .price { font-size: 28px; font-weight: 800; color: #312e81; margin-bottom: 4px; }
-    .plan-name { font-size: 14px; color: #9ca3af; margin-bottom: 24px; }
     button { background: #312e81; color: #fff; border: none; border-radius: 10px; padding: 14px 32px; font-size: 16px; font-weight: 700; width: 100%; cursor: pointer; }
-    .msg { margin-top: 20px; font-size: 14px; color: #16a34a; display: none; }
-    .err { margin-top: 20px; font-size: 14px; color: #dc2626; display: none; }
   </style>
 </head>
 <body>
@@ -1055,8 +1054,6 @@ app.get('/api/payment/mobile-checkout', async (req, res) => {
   <div class="price">${planConfig.label}</div>
   <p>Secure payment via Razorpay</p>
   <button onclick="startPayment()">Pay Now</button>
-  <div class="msg" id="msg">✅ Payment successful! Your plan is now active.</div>
-  <div class="err" id="err"></div>
 </div>
 <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
 <script>
@@ -1068,24 +1065,8 @@ function startPayment() {
     name: "Task Delegation Tracker",
     description: "${planConfig.label}",
     order_id: "${order.id}",
-    handler: function(response) {
-      fetch("${backendUrl}/api/payment/verify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": "Bearer ${token}" },
-        body: JSON.stringify({
-          razorpay_order_id: response.razorpay_order_id,
-          razorpay_payment_id: response.razorpay_payment_id,
-          razorpay_signature: response.razorpay_signature,
-          plan: "${plan}"
-        })
-      })
-      .then(r => r.json())
-      .then(d => {
-        if (d.success) { document.getElementById("msg").style.display = "block"; }
-        else { document.getElementById("err").innerText = d.error || "Verification failed"; document.getElementById("err").style.display = "block"; }
-      })
-      .catch(() => { document.getElementById("err").innerText = "Network error"; document.getElementById("err").style.display = "block"; });
-    },
+    callback_url: "${callbackUrl}",
+    redirect: true,
     theme: { color: "#312e81" }
   };
   var rzp = new Razorpay(options);
@@ -1097,6 +1078,37 @@ window.onload = startPayment;
 </html>`);
   } catch (err) {
     res.status(500).send('Error: ' + err.message);
+  }
+});
+
+// Razorpay mobile callback (server-to-server POST after payment)
+app.post('/api/payment/mobile-callback', async (req, res) => {
+  try {
+    const { token, plan } = req.query;
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
+
+    let user;
+    try { user = jwt.verify(token, JWT_SECRET); } catch {
+      return res.send(`<html><body style="font-family:sans-serif;text-align:center;padding:40px;background:#312e81;color:#fff"><h2>❌ Session expired</h2><p>Please login again and retry.</p></body></html>`);
+    }
+
+    const body = razorpay_order_id + '|' + razorpay_payment_id;
+    const expectedSignature = crypto.createHmac('sha256', process.env.RAZORPAY_KEY_SECRET).update(body).digest('hex');
+
+    if (expectedSignature !== razorpay_signature) {
+      return res.send(`<html><body style="font-family:sans-serif;text-align:center;padding:40px;background:#312e81;color:#fff"><h2>❌ Payment verification failed</h2><p>Please contact support.</p></body></html>`);
+    }
+
+    const planConfig = PLANS[plan] || PLANS.starter;
+    const paid_until = new Date(Date.now() + planConfig.days * 24 * 60 * 60 * 1000);
+    await pool.query(
+      `UPDATE tt_companies SET is_paid=true, plan=$1, paid_until=$2, razorpay_payment_id=$3 WHERE id=$4`,
+      [plan, paid_until, razorpay_payment_id, user.company_id]
+    );
+
+    res.send(`<html><body style="font-family:sans-serif;text-align:center;padding:40px;background:#312e81;color:#fff"><h2>✅ Payment Successful!</h2><p style="color:rgba(255,255,255,0.8)">${planConfig.label} plan is now active.</p><p style="color:rgba(255,255,255,0.6);margin-top:20px">Close this window and refresh the app.</p></body></html>`);
+  } catch (err) {
+    res.send(`<html><body style="font-family:sans-serif;text-align:center;padding:40px"><h2>Error</h2><p>${err.message}</p></body></html>`);
   }
 });
 
