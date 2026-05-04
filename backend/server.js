@@ -982,14 +982,15 @@ app.post('/api/payment/verify', auth, async (req, res) => {
 // Razorpay webhook (for auto-renewal tracking)
 app.post('/api/payment/webhook', async (req, res) => {
   try {
-    const signature = req.headers['x-razorpay-signature'];
     const body = req.body;
-    const expectedSignature = crypto
-      .createHmac('sha256', process.env.RAZORPAY_WEBHOOK_SECRET || '')
-      .update(body)
-      .digest('hex');
-
-    if (signature !== expectedSignature) return res.status(400).json({ error: 'Invalid signature' });
+    if (process.env.RAZORPAY_WEBHOOK_SECRET) {
+      const signature = req.headers['x-razorpay-signature'];
+      const expectedSignature = crypto
+        .createHmac('sha256', process.env.RAZORPAY_WEBHOOK_SECRET)
+        .update(body)
+        .digest('hex');
+      if (signature !== expectedSignature) return res.status(400).json({ error: 'Invalid signature' });
+    }
 
     const event = JSON.parse(body);
     if (event.event === 'payment.captured') {
