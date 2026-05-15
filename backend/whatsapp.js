@@ -1,6 +1,6 @@
 const PHONE_NUMBER_ID = process.env.WA_PHONE_NUMBER_ID;
 const ACCESS_TOKEN = process.env.WA_ACCESS_TOKEN;
-const API_URL = `https://graph.facebook.com/v19.0/${PHONE_NUMBER_ID}/messages`;
+const API_URL = `https://graph.facebook.com/v21.0/${PHONE_NUMBER_ID}/messages`;
 
 function formatDate(d) {
   if (!d) return '-';

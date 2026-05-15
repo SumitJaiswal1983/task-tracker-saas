@@ -1,5 +1,6 @@
 require('dotenv').config();
 const express = require('express');
+const compression = require('compression');
 const cors = require('cors');
 const path = require('path');
 const bcrypt = require('bcryptjs');
@@ -13,8 +14,23 @@ const app = express();
 
 // Raw body needed for Razorpay webhook signature verification
 app.use('/api/payment/webhook', express.raw({ type: 'application/json' }));
+app.use(compression());
 app.use(cors());
 app.use(express.json());
+
+// In-memory company cache — avoids a DB hit on every auth'd request
+const companyCache = new Map();
+const COMPANY_CACHE_TTL = 30_000; // 30 seconds
+function getCachedCompany(id) {
+  const e = companyCache.get(id);
+  return (e && e.exp > Date.now()) ? e.row : null;
+}
+function setCachedCompany(id, row) {
+  companyCache.set(id, { row, exp: Date.now() + COMPANY_CACHE_TTL });
+}
+function invalidateCompanyCache(id) {
+  companyCache.delete(id);
+}
 
 const JWT_SECRET = process.env.JWT_SECRET || 'taskflow-saas-secret-2026';
 const SUPERADMIN_EMAIL = process.env.SUPERADMIN_EMAIL || 'sumit@highflow.in';
@@ -47,6 +63,9 @@ const PLANS = {
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false },
+  max: 10,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 5000,
 });
 
 // ========================
@@ -79,8 +98,12 @@ function superAdminOnly(req, res, next) {
 async function checkTrial(req, res, next) {
   if (req.user.role === 'superadmin') return next();
 
-  const { rows } = await pool.query('SELECT * FROM tt_companies WHERE id=$1', [req.user.company_id]);
-  const company = rows[0];
+  let company = getCachedCompany(req.user.company_id);
+  if (!company) {
+    const { rows } = await pool.query('SELECT * FROM tt_companies WHERE id=$1', [req.user.company_id]);
+    company = rows[0];
+    if (company) setCachedCompany(req.user.company_id, company);
+  }
   if (!company) return res.status(403).json({ error: 'Company not found' });
 
   const now = Date.now();
@@ -202,7 +225,48 @@ async function initDB() {
     ALTER TABLE tt_companies ADD COLUMN IF NOT EXISTS wa_messages_month VARCHAR(7) DEFAULT '';
     ALTER TABLE tt_companies ADD COLUMN IF NOT EXISTS notify_hour INTEGER DEFAULT 9;
     ALTER TABLE tt_companies ADD COLUMN IF NOT EXISTS notify_days VARCHAR(100) DEFAULT 'mon,tue,wed,thu,fri,sat,sun';
+
+    CREATE TABLE IF NOT EXISTS tt_feedback (
+      id SERIAL PRIMARY KEY,
+      company_id INTEGER REFERENCES tt_companies(id) ON DELETE SET NULL,
+      user_id INTEGER REFERENCES tt_users(id) ON DELETE SET NULL,
+      user_name VARCHAR(255),
+      user_email VARCHAR(255),
+      company_name VARCHAR(255),
+      message TEXT NOT NULL,
+      source VARCHAR(20) DEFAULT 'web',
+      created_at TIMESTAMP DEFAULT NOW()
+    );
+
+    ALTER TABLE tt_companies ADD COLUMN IF NOT EXISTS last_reminder_sent_date DATE;
+
+    CREATE TABLE IF NOT EXISTS tt_wa_messages (
+      id SERIAL PRIMARY KEY,
+      company_id INTEGER REFERENCES tt_companies(id) ON DELETE CASCADE,
+      stakeholder_name VARCHAR(200),
+      phone VARCHAR(30),
+      wamid VARCHAR(200) UNIQUE,
+      status VARCHAR(20) DEFAULT 'sent',
+      sent_at TIMESTAMPTZ DEFAULT NOW(),
+      status_at TIMESTAMPTZ
+    );
   `);
+
+  // Create performance indexes (idempotent)
+  await Promise.all([
+    pool.query(`CREATE INDEX IF NOT EXISTS idx_tasks_company_sheet     ON tt_tasks(company_id, sheet_name)`),
+    pool.query(`CREATE INDEX IF NOT EXISTS idx_tasks_company_sh        ON tt_tasks(company_id, stakeholder)`),
+    pool.query(`CREATE INDEX IF NOT EXISTS idx_tasks_completion        ON tt_tasks(company_id, completion_date)`),
+    pool.query(`CREATE INDEX IF NOT EXISTS idx_stakeholders_company    ON tt_stakeholders(company_id)`),
+    pool.query(`CREATE INDEX IF NOT EXISTS idx_sections_company        ON tt_sections(company_id)`),
+    pool.query(`CREATE INDEX IF NOT EXISTS idx_users_company           ON tt_users(company_id)`),
+    pool.query(`CREATE INDEX IF NOT EXISTS idx_users_email             ON tt_users(email)`),
+    pool.query(`CREATE INDEX IF NOT EXISTS idx_comments_task           ON tt_task_comments(task_id)`),
+    pool.query(`CREATE INDEX IF NOT EXISTS idx_subtasks_task           ON tt_subtasks(task_id)`),
+    pool.query(`CREATE INDEX IF NOT EXISTS idx_weekly_scores_company   ON tt_weekly_scores(company_id)`),
+    pool.query(`CREATE INDEX IF NOT EXISTS idx_wa_messages_company     ON tt_wa_messages(company_id)`),
+    pool.query(`CREATE INDEX IF NOT EXISTS idx_wa_messages_wamid       ON tt_wa_messages(wamid)`),
+  ]).catch(err => console.warn('Index creation warning:', err.message));
 
   // Seed superadmin (no company_id)
   const { rows: saRows } = await pool.query('SELECT id FROM tt_users WHERE email=$1', [SUPERADMIN_EMAIL]);
@@ -555,7 +619,68 @@ app.put('/api/admin/companies/:id', auth, superAdminOnly, async (req, res) => {
     }
     const { rows } = await pool.query(updateQuery, params);
     if (!rows[0]) return res.status(404).json({ error: 'Company not found' });
+    invalidateCompanyCache(parseInt(req.params.id));
     res.json({ ...rows[0], ...trialInfo(rows[0]) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/admin/companies/:id', auth, superAdminOnly, async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM tt_companies WHERE id=$1', [req.params.id]);
+    if (!rows[0]) return res.status(404).json({ error: 'Company not found' });
+    if (rows[0].is_paid) return res.status(400).json({ error: 'Cannot delete a paid company' });
+    await pool.query('DELETE FROM tt_companies WHERE id=$1', [req.params.id]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Edit own company name (admin)
+app.put('/api/company/name', auth, adminOnly, async (req, res) => {
+  try {
+    const { name } = req.body;
+    if (!name?.trim()) return res.status(400).json({ error: 'Name required' });
+    const { rows } = await pool.query(
+      'UPDATE tt_companies SET name=$1 WHERE id=$2 RETURNING *',
+      [name.trim(), req.user.company_id]
+    );
+    invalidateCompanyCache(req.user.company_id);
+    res.json({ success: true, company: trialInfo(rows[0]) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Feedback
+app.post('/api/feedback', auth, async (req, res) => {
+  try {
+    const { message, source = 'web' } = req.body;
+    if (!message?.trim()) return res.status(400).json({ error: 'Message required' });
+    let companyName = null;
+    if (req.user.company_id) {
+      const { rows } = await pool.query('SELECT name FROM tt_companies WHERE id=$1', [req.user.company_id]);
+      companyName = rows[0]?.name;
+    }
+    const { rows: uRows } = await pool.query('SELECT name, email FROM tt_users WHERE id=$1', [req.user.id]);
+    await pool.query(
+      `INSERT INTO tt_feedback (company_id, user_id, user_name, user_email, company_name, message, source) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      [req.user.company_id || null, req.user.id, uRows[0]?.name, uRows[0]?.email, companyName, message.trim(), source]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/admin/feedback', auth, superAdminOnly, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT * FROM tt_feedback ORDER BY created_at DESC LIMIT 200`
+    );
+    res.json(rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -734,46 +859,64 @@ app.delete('/api/tasks/:id', auth, checkTrial, async (req, res) => {
 app.get('/api/dashboard', auth, checkTrial, async (req, res) => {
   try {
     const { sheet_name } = req.query;
-    const result = await pool.query(
-      sheet_name
-        ? 'SELECT * FROM tt_tasks WHERE company_id=$1 AND sheet_name=$2'
-        : 'SELECT * FROM tt_tasks WHERE company_id=$1',
-      sheet_name ? [req.user.company_id, sheet_name] : [req.user.company_id]
-    );
-    const tasks = result.rows.map(calcTask);
-    const total = tasks.length;
-    const completed = tasks.filter(t => t.achievement_status === 'Completed').length;
-    const pending = tasks.filter(t => t.achievement_status === 'Pending').length;
-    const overdue = tasks.filter(t => t.is_overdue).length;
-    const scoredTasks = tasks.filter(t => t.score !== null);
-    const avgScore = scoredTasks.length
-      ? (scoredTasks.reduce((s, t) => s + t.score, 0) / scoredTasks.length).toFixed(2) : 0;
+    const params = [req.user.company_id];
+    if (sheet_name) params.push(sheet_name);
+    const sc = sheet_name ? `AND sheet_name=$2` : '';
 
-    const shMap = {};
-    tasks.forEach(t => {
-      if (!t.stakeholder) return;
-      if (!shMap[t.stakeholder]) shMap[t.stakeholder] = { total: 0, completed: 0, scoreSum: 0, scored: 0 };
-      shMap[t.stakeholder].total++;
-      if (t.achievement_status === 'Completed') shMap[t.stakeholder].completed++;
-      if (t.score !== null) { shMap[t.stakeholder].scoreSum += t.score; shMap[t.stakeholder].scored++; }
+    const DEVIATIONS = `(
+      (revised_date_1 IS NOT NULL)::int + (revised_date_2 IS NOT NULL)::int +
+      (revised_date_3 IS NOT NULL)::int + (revised_date_4 IS NOT NULL)::int +
+      (revised_date_5 IS NOT NULL)::int
+    )`;
+    const EFFECTIVE_TARGET = `COALESCE(revised_date_5,revised_date_4,revised_date_3,revised_date_2,revised_date_1,initial_target_date)`;
+    const SCORE_EXPR = `CASE WHEN completion_date IS NOT NULL AND initial_target_date IS NOT NULL
+      THEN GREATEST(0, 5 - ${DEVIATIONS}) END`;
+
+    const [sumR, shR, secR] = await Promise.all([
+      pool.query(`
+        SELECT
+          COUNT(*)                                                                AS total,
+          COUNT(*) FILTER (WHERE completion_date IS NOT NULL)                     AS completed,
+          COUNT(*) FILTER (WHERE completion_date IS NULL)                         AS pending,
+          COUNT(*) FILTER (WHERE completion_date IS NULL
+            AND ${EFFECTIVE_TARGET} IS NOT NULL
+            AND ${EFFECTIVE_TARGET} < CURRENT_DATE)                              AS overdue,
+          COALESCE(ROUND(AVG(${SCORE_EXPR})::numeric, 2), 0)                     AS avg_score
+        FROM tt_tasks WHERE company_id=$1 ${sc}`, params),
+      pool.query(`
+        SELECT stakeholder AS name,
+          COUNT(*)                                                                AS total,
+          COUNT(*) FILTER (WHERE completion_date IS NOT NULL)                     AS completed,
+          COUNT(*) FILTER (WHERE completion_date IS NULL)                         AS pending,
+          COALESCE(ROUND(AVG(${SCORE_EXPR})::numeric, 2), 0)                     AS avg_score
+        FROM tt_tasks WHERE company_id=$1 ${sc} AND stakeholder IS NOT NULL
+        GROUP BY stakeholder ORDER BY COUNT(*) DESC`, params),
+      pool.query(`
+        SELECT section AS name,
+          COUNT(*)                                                                AS total,
+          COUNT(*) FILTER (WHERE completion_date IS NOT NULL)                     AS completed,
+          COUNT(*) FILTER (WHERE completion_date IS NULL)                         AS pending
+        FROM tt_tasks WHERE company_id=$1 ${sc} AND section IS NOT NULL
+        GROUP BY section ORDER BY COUNT(*) DESC`, params),
+    ]);
+
+    const s = sumR.rows[0];
+    res.json({
+      total:    parseInt(s.total),
+      completed: parseInt(s.completed),
+      pending:   parseInt(s.pending),
+      overdue:   parseInt(s.overdue),
+      avgScore:  s.avg_score,
+      stakeholderStats: shR.rows.map(r => ({
+        name: r.name,
+        total: parseInt(r.total), completed: parseInt(r.completed), pending: parseInt(r.pending),
+        avgScore: r.avg_score === '0' ? '-' : String(r.avg_score),
+      })),
+      sectionStats: secR.rows.map(r => ({
+        name: r.name,
+        total: parseInt(r.total), completed: parseInt(r.completed), pending: parseInt(r.pending),
+      })),
     });
-    const stakeholderStats = Object.entries(shMap).map(([name, d]) => ({
-      name, total: d.total, completed: d.completed, pending: d.total - d.completed,
-      avgScore: d.scored ? (d.scoreSum / d.scored).toFixed(2) : '-',
-    })).sort((a, b) => b.total - a.total);
-
-    const secMap = {};
-    tasks.forEach(t => {
-      if (!t.section) return;
-      if (!secMap[t.section]) secMap[t.section] = { total: 0, completed: 0 };
-      secMap[t.section].total++;
-      if (t.achievement_status === 'Completed') secMap[t.section].completed++;
-    });
-    const sectionStats = Object.entries(secMap).map(([name, d]) => ({
-      name, total: d.total, completed: d.completed, pending: d.total - d.completed,
-    })).sort((a, b) => b.total - a.total);
-
-    res.json({ total, completed, pending, overdue, avgScore, stakeholderStats, sectionStats });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -972,7 +1115,7 @@ app.post('/api/payment/verify', auth, async (req, res) => {
        WHERE id=$4 RETURNING *`,
       [plan, paid_until, razorpay_payment_id, req.user.company_id]
     );
-
+    invalidateCompanyCache(req.user.company_id);
     res.json({ success: true, company: trialInfo(rows[0]) });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1031,7 +1174,7 @@ app.get('/api/payment/mobile-checkout', async (req, res) => {
     });
 
     const keyId = process.env.RAZORPAY_KEY_ID;
-    const backendUrl = process.env.BACKEND_URL || 'https://task-tracker-backend-production-94c1.up.railway.app';
+    const backendUrl = process.env.BACKEND_URL || 'https://api.highflow.in';
 
     const callbackUrl = `${backendUrl}/api/payment/mobile-callback?token=${encodeURIComponent(token)}&plan=${plan}`;
 
@@ -1106,8 +1249,9 @@ app.post('/api/payment/mobile-callback', async (req, res) => {
       `UPDATE tt_companies SET is_paid=true, plan=$1, paid_until=$2, razorpay_payment_id=$3 WHERE id=$4`,
       [plan, paid_until, razorpay_payment_id, user.company_id]
     );
+    invalidateCompanyCache(user.company_id);
 
-    res.send(`<html><body style="font-family:sans-serif;text-align:center;padding:40px;background:#312e81;color:#fff"><h2>✅ Payment Successful!</h2><p style="color:rgba(255,255,255,0.8)">${planConfig.label} plan is now active.</p><p style="color:rgba(255,255,255,0.6);margin-top:20px">Close this window and refresh the app.</p></body></html>`);
+    res.send(`<html><body style="font-family:sans-serif;text-align:center;padding:40px;background:#312e81;color:#fff"><h2>✅ Payment Successful!</h2><p style="color:rgba(255,255,255,0.8)">${planConfig.label} plan is now active.</p><p style="color:rgba(255,255,255,0.6);margin-top:20px">Close this window — app will activate automatically.</p></body></html>`);
   } catch (err) {
     res.send(`<html><body style="font-family:sans-serif;text-align:center;padding:40px"><h2>Error</h2><p>${err.message}</p></body></html>`);
   }
@@ -1146,25 +1290,30 @@ function buildMessage(stakeholderName, tasks, companyName) {
 async function waPost(body) {
   const phoneId = WA_PHONE_ID();
   const token = WA_TOKEN();
-  if (!phoneId || !token) return false;
+  if (!phoneId || !token) return { ok: false, wamid: null };
   try {
-    const res = await fetch(`https://graph.facebook.com/v19.0/${phoneId}/messages`, {
+    const res = await fetch(`https://graph.facebook.com/v21.0/${phoneId}/messages`, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
     const data = await res.json();
-    if (!res.ok) { console.error('WA error:', data?.error?.message || JSON.stringify(data)); return false; }
-    return true;
+    if (!res.ok) {
+      console.error(`WA error [${res.status}] to ${body?.to}: code=${data?.error?.code} msg=${data?.error?.message} raw=${JSON.stringify(data)}`);
+      return { ok: false, wamid: null };
+    }
+    const wamid = data?.messages?.[0]?.id || null;
+    console.log(`WA sent to ${body?.to}: wamid=${wamid}`);
+    return { ok: true, wamid };
   } catch (err) {
     console.error('WhatsApp fetch error:', err.message);
-    return false;
+    return { ok: false, wamid: null };
   }
 }
 
 async function sendWhatsAppTemplate(toNumber, name, taskCount) {
   const number = String(toNumber).replace(/[\s\-\+]/g, '');
-  if (number.length < 10) return false;
+  if (number.length < 10) return { ok: false, wamid: null };
   return waPost({
     messaging_product: 'whatsapp',
     to: number,
@@ -1183,12 +1332,13 @@ async function sendWhatsAppTemplate(toNumber, name, taskCount) {
 async function sendWhatsAppText(toNumber, text) {
   const number = String(toNumber).replace(/[\s\-\+]/g, '');
   if (number.length < 10) return false;
-  return waPost({
+  const { ok } = await waPost({
     messaging_product: 'whatsapp',
     to: number,
     type: 'text',
     text: { body: text },
   });
+  return ok;
 }
 
 async function runOverdueReminders(companyId, stakeholderIds = null) {
@@ -1237,7 +1387,7 @@ async function runOverdueReminders(companyId, stakeholderIds = null) {
       }
 
       // Send template first to open 24-hr session, then send full task list as free-form text
-      const templateOk = await sendWhatsAppTemplate(sh.whatsapp_number, sh.name, pendingTasks.length);
+      const { ok: templateOk, wamid } = await sendWhatsAppTemplate(sh.whatsapp_number, sh.name, pendingTasks.length);
       if (templateOk) {
         const msg = buildMessage(sh.name, pendingTasks, company.name);
         await sendWhatsAppText(sh.whatsapp_number, msg);
@@ -1246,8 +1396,18 @@ async function runOverdueReminders(companyId, stakeholderIds = null) {
         if (waCheck.limit > 0 && waCheck.sent >= waCheck.limit) waCheck.allowed = false;
         totalSent++;
         details.push({ name: sh.name, number: sh.whatsapp_number, status: 'sent', tasks: pendingTasks.length });
+        pool.query(
+          `INSERT INTO tt_wa_messages (company_id, stakeholder_name, phone, wamid, status)
+           VALUES ($1,$2,$3,$4,'sent') ON CONFLICT (wamid) DO NOTHING`,
+          [company.id, sh.name, sh.whatsapp_number, wamid]
+        ).catch(() => {});
       } else {
         details.push({ name: sh.name, number: sh.whatsapp_number, status: 'failed', reason: 'WhatsApp API error' });
+        pool.query(
+          `INSERT INTO tt_wa_messages (company_id, stakeholder_name, phone, wamid, status)
+           VALUES ($1,$2,$3,NULL,'failed')`,
+          [company.id, sh.name, sh.whatsapp_number]
+        ).catch(() => {});
       }
     }
   }
@@ -1293,7 +1453,7 @@ app.post('/api/notifications/test', auth, adminOnly, checkTrial, async (req, res
     if (!phone) return res.status(400).json({ error: 'Phone number required' });
     const { rows } = await pool.query('SELECT name FROM tt_companies WHERE id=$1', [req.user.company_id]);
     const companyName = rows[0]?.name || 'Your Company';
-    const ok = await sendWhatsAppText(phone, `*Task Reminder - ${companyName}*\nHi Test User! Aaj ke pending tasks:\n\n1. Sample overdue task\n   📅 Target: 20 Apr 2026 ⚠️ Overdue | 📌 IT\n\nTotal: *1* pending task(s)\nLog in: https://task-tracker-backend-production-94c1.up.railway.app`);
+    const ok = await sendWhatsAppText(phone, `*Task Reminder - ${companyName}*\nHi Test User! Aaj ke pending tasks:\n\n1. Sample overdue task\n   📅 Target: 20 Apr 2026 ⚠️ Overdue | 📌 IT\n\nTotal: *1* pending task(s)\nLog in: https://api.highflow.in`);
     if (ok) res.json({ success: true });
     else res.status(500).json({ error: 'Message failed. Check phone number and WhatsApp config.' });
   } catch (err) {
@@ -1320,7 +1480,54 @@ app.put('/api/settings', auth, adminOnly, checkTrial, async (req, res) => {
       'UPDATE tt_companies SET notify_hour=$1, notify_days=$2 WHERE id=$3 RETURNING notify_hour, notify_days',
       [notify_hour ?? 9, notify_days || 'mon,tue,wed,thu,fri,sat,sun', req.user.company_id]
     );
+    invalidateCompanyCache(req.user.company_id);
     res.json(rows[0]);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// WA message delivery webhook — Meta calls this when status changes (delivered/read/failed)
+app.get('/api/wa/webhook', (req, res) => {
+  const mode = req.query['hub.mode'];
+  const token = req.query['hub.verify_token'];
+  const challenge = req.query['hub.challenge'];
+  if (mode === 'subscribe' && token === (process.env.WA_WEBHOOK_TOKEN || 'highflow-wa-webhook')) {
+    res.status(200).send(challenge);
+  } else {
+    res.status(403).send('Forbidden');
+  }
+});
+
+app.post('/api/wa/webhook', async (req, res) => {
+  res.sendStatus(200);
+  try {
+    const entries = req.body?.entry || [];
+    for (const entry of entries) {
+      for (const change of (entry.changes || [])) {
+        for (const status of (change.value?.statuses || [])) {
+          const { id: wamid, status: newStatus } = status;
+          if (!wamid || !['delivered', 'read', 'failed'].includes(newStatus)) continue;
+          pool.query(
+            `UPDATE tt_wa_messages SET status=$1, status_at=NOW() WHERE wamid=$2 AND status != 'read'`,
+            [newStatus, wamid]
+          ).catch(() => {});
+        }
+      }
+    }
+  } catch (err) { console.error('WA webhook error:', err.message); }
+});
+
+// Get WA message history for current company (last 30 days)
+app.get('/api/notifications/messages', auth, checkTrial, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT stakeholder_name, phone, wamid, status, sent_at, status_at
+       FROM tt_wa_messages
+       WHERE company_id=$1 AND sent_at > NOW() - INTERVAL '30 days'
+       ORDER BY sent_at DESC
+       LIMIT 200`,
+      [req.user.company_id]
+    );
+    res.json(rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -1422,6 +1629,48 @@ app.delete('/api/tasks/:taskId/subtasks/:subtaskId', auth, checkTrial, async (re
 });
 
 // ========================
+// ========================
+// LEGAL PAGES
+// ========================
+
+app.get('/privacy', (req, res) => {
+  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Privacy Policy – Task Delegation Tracker</title>
+<style>body{font-family:sans-serif;max-width:800px;margin:40px auto;padding:0 20px;color:#333;line-height:1.7}h1{color:#312e81}h2{color:#4f46e5;margin-top:32px}a{color:#4f46e5}</style></head><body>
+<h1>Privacy Policy</h1>
+<p><strong>Last updated: May 2026</strong></p>
+<p>Task Delegation Tracker ("the App") is operated by Highflow Industries. This policy explains how we collect, use, and protect your data.</p>
+<h2>Information We Collect</h2>
+<ul><li>Account information: name, email address, WhatsApp number</li><li>Task data: tasks, deadlines, sections, and stakeholder information you create</li><li>Payment information: processed securely via Razorpay (we do not store card details)</li><li>Usage data: login timestamps, app activity</li></ul>
+<h2>How We Use Your Information</h2>
+<ul><li>To provide and improve the Task Delegation Tracker service</li><li>To send WhatsApp reminders to stakeholders (only when you initiate)</li><li>To process subscription payments</li><li>To communicate important updates about the service</li></ul>
+<h2>Data Sharing</h2>
+<p>We do not sell your data. We share data only with service providers necessary to operate the app (Razorpay for payments, WhatsApp Business API for notifications).</p>
+<h2>Data Security</h2>
+<p>Your data is stored securely in encrypted databases. Passwords are hashed and never stored in plain text.</p>
+<h2>Data Retention</h2>
+<p>We retain your data for as long as your account is active. You may request deletion at any time.</p>
+<h2>Your Rights</h2>
+<p>You have the right to access, correct, or delete your personal data. To exercise these rights, contact us at <a href="mailto:sumit@highflow.in">sumit@highflow.in</a> or visit our <a href="/delete-account">account deletion page</a>.</p>
+<h2>Contact</h2>
+<p>Highflow Industries<br>Email: <a href="mailto:sumit@highflow.in">sumit@highflow.in</a></p>
+</body></html>`);
+});
+
+app.get('/delete-account', (req, res) => {
+  res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Delete Account – Task Delegation Tracker</title>
+<style>body{font-family:sans-serif;max-width:800px;margin:40px auto;padding:0 20px;color:#333;line-height:1.7}h1{color:#312e81}h2{color:#4f46e5;margin-top:32px}.box{background:#fef2f2;border:1px solid #fecaca;border-radius:10px;padding:20px 24px;margin:24px 0}a{color:#4f46e5}ul{margin:12px 0}</style></head><body>
+<h1>Delete Your Account</h1>
+<p>You can request deletion of your Task Delegation Tracker account and all associated data.</p>
+<h2>What Gets Deleted</h2>
+<ul><li>Your user profile (name, email, WhatsApp number)</li><li>All tasks, sections, and stakeholder data linked to your account</li><li>Your company data (if you are the account owner)</li></ul>
+<h2>What Is Retained</h2>
+<ul><li>Payment records may be retained for up to 7 years as required by Indian financial regulations</li></ul>
+<div class="box"><strong>To request account deletion:</strong><br><br>
+Send an email to <a href="mailto:sumit@highflow.in">sumit@highflow.in</a> with subject line <strong>"Account Deletion Request"</strong> and include your registered email address. We will process your request within 7 business days.</div>
+<p><a href="/privacy">← Privacy Policy</a></p>
+</body></html>`);
+});
+
 // SERVE FRONTEND (prod)
 // ========================
 
@@ -1465,27 +1714,45 @@ async function spawnRecurringTasks() {
 }
 
 async function runScheduledReminders() {
-  const { hour, day } = getCurrentIST();
-  console.log(`Scheduled check: IST ${hour}:30, day=${day}`);
+  // Compute current IST time — Railway runs in UTC
+  const istMs = Date.now() + 5.5 * 60 * 60 * 1000;
+  const d = new Date(istMs);
+  const dayNames = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+  const hour = d.getHours();
+  const day = dayNames[d.getDay()];
+  const istDateStr = d.toISOString().slice(0, 10); // YYYY-MM-DD in IST
 
+  console.log(`Cron tick: IST ${hour}:${String(d.getMinutes()).padStart(2, '0')} (${day} ${istDateStr})`);
+
+  // Find companies whose notify_hour matches current IST hour
+  // AND haven't been notified today yet (dedup guard — cron runs every 5 min)
   const { rows: companies } = await pool.query(`
     SELECT id, notify_days FROM tt_companies
     WHERE notify_hour = $1
+      AND (last_reminder_sent_date IS NULL OR last_reminder_sent_date::text != $2)
       AND ((is_paid = true AND paid_until > NOW()) OR (trial_start_date > NOW() - INTERVAL '30 days'))
-  `, [hour]);
+  `, [hour, istDateStr]);
+
+  if (companies.length === 0) return 0;
 
   let totalSent = 0;
   for (const company of companies) {
+    // Mark as processed for today first — prevents duplicate sends even if this crashes
+    await pool.query('UPDATE tt_companies SET last_reminder_sent_date=$1 WHERE id=$2', [istDateStr, company.id]);
+    invalidateCompanyCache(company.id);
+
     const activeDays = (company.notify_days || 'mon,tue,wed,thu,fri,sat,sun').split(',').map(d => d.trim());
-    if (!activeDays.includes(day)) continue;
+    if (!activeDays.includes(day)) {
+      console.log(`Company ${company.id}: skipping — ${day} not in notify_days`);
+      continue;
+    }
     const result = await runOverdueReminders(company.id);
     totalSent += result.sent;
+    console.log(`Company ${company.id}: sent ${result.sent} reminders`);
   }
 
-  if (companies.length > 0) {
-    await spawnRecurringTasks().catch(console.error);
-  }
-  console.log(`Scheduled reminders total sent: ${totalSent}`);
+  await spawnRecurringTasks().catch(console.error);
+  console.log(`Scheduled reminders done: ${totalSent} messages sent`);
   return totalSent;
 }
 
@@ -1493,8 +1760,10 @@ const PORT = process.env.PORT || 5004;
 initDB()
   .then(() => {
     app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
-    // Run every hour at :30 — aligns with IST (+5:30) so hour boundaries match cleanly
-    cron.schedule('30 * * * *', () => {
+    // Run every 5 minutes — uses last_reminder_sent_date to prevent duplicate sends per day.
+    // This survives Railway redeploys: even if a deploy misses the exact hour, the
+    // next 5-min tick within the same hour will catch it.
+    cron.schedule('*/5 * * * *', () => {
       runScheduledReminders().catch(console.error);
     });
   })
