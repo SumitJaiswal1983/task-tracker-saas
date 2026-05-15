@@ -1506,6 +1506,9 @@ app.post('/api/wa/webhook', async (req, res) => {
         for (const status of (change.value?.statuses || [])) {
           const { id: wamid, status: newStatus } = status;
           if (!wamid || !['delivered', 'read', 'failed'].includes(newStatus)) continue;
+          if (newStatus === 'failed') {
+            console.error(`WA delivery FAILED wamid=${wamid} errors=${JSON.stringify(status.errors)} raw=${JSON.stringify(status)}`);
+          }
           pool.query(
             `UPDATE tt_wa_messages SET status=$1, status_at=NOW() WHERE wamid=$2 AND status != 'read'`,
             [newStatus, wamid]
