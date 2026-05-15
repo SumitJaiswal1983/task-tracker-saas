@@ -1314,15 +1314,16 @@ async function waPost(body) {
 async function sendWhatsAppTemplate(toNumber, name, tasks) {
   const number = String(toNumber).replace(/[\s\-\+]/g, '');
   if (number.length < 10) return { ok: false, wamid: null };
+  const LS = ' ';
   const taskLines = tasks.map((t, i) => {
     const target = t.revised_date_5 || t.revised_date_4 || t.revised_date_3 ||
       t.revised_date_2 || t.revised_date_1 || t.initial_target_date;
     const targetStr = target
       ? new Date(target).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
       : '-';
-    const overdue = target && new Date(target) < new Date() ? ' ⚠️' : '';
-    return `${i + 1}. ${t.task_description} [${targetStr}${overdue}, ${t.section || '-'}]`;
-  }).join(' | ');
+    const overdue = target && new Date(target) < new Date() ? ' ⚠️ Overdue' : '';
+    return `${i + 1}. ${t.task_description}${LS}   📅 Target: ${targetStr}${overdue} | 📌 ${t.section || '-'}`;
+  }).join(LS + LS);
   return waPost({
     messaging_product: 'whatsapp',
     to: number,
