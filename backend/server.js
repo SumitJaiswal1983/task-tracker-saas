@@ -1320,9 +1320,9 @@ async function sendWhatsAppTemplate(toNumber, name, tasks) {
     const targetStr = target
       ? new Date(target).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
       : '-';
-    const overdue = target && new Date(target) < new Date() ? ' ⚠️ Overdue' : '';
-    return `${i + 1}. ${t.task_description}\n   📅 Target: ${targetStr}${overdue} | 📌 ${t.section || '-'}`;
-  }).join('\n\n');
+    const overdue = target && new Date(target) < new Date() ? ' ⚠️' : '';
+    return `${i + 1}. ${t.task_description} [${targetStr}${overdue}, ${t.section || '-'}]`;
+  }).join(' | ');
   return waPost({
     messaging_product: 'whatsapp',
     to: number,
