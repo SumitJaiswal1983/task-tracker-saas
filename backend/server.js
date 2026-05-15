@@ -1314,26 +1314,32 @@ async function waPost(body) {
 async function sendWhatsAppTemplate(toNumber, name, tasks) {
   const number = String(toNumber).replace(/[\s\-\+]/g, '');
   if (number.length < 10) return { ok: false, wamid: null };
-  const LS = ' ';
-  const taskLines = tasks.map((t, i) => {
-    const target = t.revised_date_5 || t.revised_date_4 || t.revised_date_3 ||
-      t.revised_date_2 || t.revised_date_1 || t.initial_target_date;
-    const targetStr = target
-      ? new Date(target).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
-      : '-';
-    const overdue = target && new Date(target) < new Date() ? ' ⚠️ Overdue' : '';
-    return `${i + 1}. ${t.task_description}${LS}   📅 Target: ${targetStr}${overdue} | 📌 ${t.section || '-'}`;
-  }).join(LS + LS);
+  const MAX_SLOTS = 15;
+  const taskParams = [];
+  for (let i = 0; i < MAX_SLOTS; i++) {
+    if (i < tasks.length) {
+      const t = tasks[i];
+      const target = t.revised_date_5 || t.revised_date_4 || t.revised_date_3 ||
+        t.revised_date_2 || t.revised_date_1 || t.initial_target_date;
+      const targetStr = target
+        ? new Date(target).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+        : '-';
+      const overdue = target && new Date(target) < new Date() ? ' ⚠️' : '';
+      taskParams.push({ type: 'text', text: `${i + 1}. ${t.task_description} 📅 ${targetStr}${overdue} 📌 ${t.section || '-'}` });
+    } else {
+      taskParams.push({ type: 'text', text: ' ' });
+    }
+  }
   return waPost({
     messaging_product: 'whatsapp',
     to: number,
     type: 'template',
     template: {
-      name: 'task_reminder_detail',
+      name: 'task_reminder_lines',
       language: { code: 'en' },
       components: [{ type: 'body', parameters: [
         { type: 'text', text: String(name) },
-        { type: 'text', text: taskLines },
+        ...taskParams,
         { type: 'text', text: String(tasks.length) },
       ]}],
     },
