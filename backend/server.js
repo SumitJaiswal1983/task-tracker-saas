@@ -1311,19 +1311,29 @@ async function waPost(body) {
   }
 }
 
-async function sendWhatsAppTemplate(toNumber, name, taskCount) {
+async function sendWhatsAppTemplate(toNumber, name, tasks) {
   const number = String(toNumber).replace(/[\s\-\+]/g, '');
   if (number.length < 10) return { ok: false, wamid: null };
+  const taskLines = tasks.map((t, i) => {
+    const target = t.revised_date_5 || t.revised_date_4 || t.revised_date_3 ||
+      t.revised_date_2 || t.revised_date_1 || t.initial_target_date;
+    const targetStr = target
+      ? new Date(target).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+      : '-';
+    const overdue = target && new Date(target) < new Date() ? ' ⚠️ Overdue' : '';
+    return `${i + 1}. ${t.task_description}\n   📅 Target: ${targetStr}${overdue} | 📌 ${t.section || '-'}`;
+  }).join('\n\n');
   return waPost({
     messaging_product: 'whatsapp',
     to: number,
     type: 'template',
     template: {
-      name: 'task_reminder',
+      name: 'task_reminder_detail',
       language: { code: 'en' },
       components: [{ type: 'body', parameters: [
         { type: 'text', text: String(name) },
-        { type: 'text', text: String(taskCount) },
+        { type: 'text', text: taskLines },
+        { type: 'text', text: String(tasks.length) },
       ]}],
     },
   });
@@ -1386,11 +1396,8 @@ async function runOverdueReminders(companyId, stakeholderIds = null) {
         continue;
       }
 
-      // Send template first to open 24-hr session, then send full task list as free-form text
-      const { ok: templateOk, wamid } = await sendWhatsAppTemplate(sh.whatsapp_number, sh.name, pendingTasks.length);
+      const { ok: templateOk, wamid } = await sendWhatsAppTemplate(sh.whatsapp_number, sh.name, pendingTasks);
       if (templateOk) {
-        const msg = buildMessage(sh.name, pendingTasks, company.name);
-        await sendWhatsAppText(sh.whatsapp_number, msg);
         await incrementWACount(company.id);
         waCheck.sent++;
         if (waCheck.limit > 0 && waCheck.sent >= waCheck.limit) waCheck.allowed = false;
