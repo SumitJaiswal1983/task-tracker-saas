@@ -225,6 +225,7 @@ async function initDB() {
     ALTER TABLE tt_companies ADD COLUMN IF NOT EXISTS wa_messages_month VARCHAR(7) DEFAULT '';
     ALTER TABLE tt_companies ADD COLUMN IF NOT EXISTS notify_hour INTEGER DEFAULT 9;
     ALTER TABLE tt_companies ADD COLUMN IF NOT EXISTS notify_days VARCHAR(100) DEFAULT 'mon,tue,wed,thu,fri,sat,sun';
+    ALTER TABLE tt_companies ADD COLUMN IF NOT EXISTS wa_limit_override INTEGER DEFAULT NULL;
 
     CREATE TABLE IF NOT EXISTS tt_feedback (
       id SERIAL PRIMARY KEY,
@@ -250,6 +251,7 @@ async function initDB() {
       sent_at TIMESTAMPTZ DEFAULT NOW(),
       status_at TIMESTAMPTZ
     );
+    ALTER TABLE tt_wa_messages ADD COLUMN IF NOT EXISTS error_reason VARCHAR(500);
   `);
 
   // Create performance indexes (idempotent)
@@ -306,9 +308,11 @@ function getPlanLimits(company) {
   const subscriptionActive = company.is_paid && company.paid_until && new Date(company.paid_until) > now;
   if (subscriptionActive) {
     const planConfig = PLANS[company.plan] || PLANS.monthly;
-    return { max_users: -1, max_stakeholders: -1, max_tasks: -1, wa_limit: planConfig.wa_limit };
+    const wa_limit = company.wa_limit_override != null ? company.wa_limit_override : planConfig.wa_limit;
+    return { max_users: -1, max_stakeholders: -1, max_tasks: -1, wa_limit };
   }
-  return { ...TRIAL_LIMITS };
+  const wa_limit = company.wa_limit_override != null ? company.wa_limit_override : TRIAL_LIMITS.wa_limit;
+  return { ...TRIAL_LIMITS, wa_limit };
 }
 
 async function checkWALimit(companyId) {
@@ -1299,8 +1303,10 @@ async function waPost(body) {
     });
     const data = await res.json();
     if (!res.ok) {
-      console.error(`WA error [${res.status}] to ${body?.to}: code=${data?.error?.code} msg=${data?.error?.message} raw=${JSON.stringify(data)}`);
-      return { ok: false, wamid: null };
+      const errCode = data?.error?.code;
+      const errMsg = data?.error?.message || JSON.stringify(data);
+      console.error(`WA error [${res.status}] to ${body?.to}: code=${errCode} msg=${errMsg} raw=${JSON.stringify(data)}`);
+      return { ok: false, wamid: null, errorReason: `[${errCode}] ${errMsg}` };
     }
     const wamid = data?.messages?.[0]?.id || null;
     console.log(`WA sent to ${body?.to}: wamid=${wamid}`);
@@ -1314,7 +1320,9 @@ async function waPost(body) {
 async function sendWhatsAppTemplate(toNumber, name, tasks) {
   const number = String(toNumber).replace(/[\s\-\+]/g, '');
   if (number.length < 10) return { ok: false, wamid: null };
-  const taskLines = tasks.map((t, i) => {
+  const MAX_SLOTS = 15;
+  const EMPTY = '​';
+  const formatTask = (t, i) => {
     const target = t.revised_date_5 || t.revised_date_4 || t.revised_date_3 ||
       t.revised_date_2 || t.revised_date_1 || t.initial_target_date;
     const targetStr = target
@@ -1322,21 +1330,38 @@ async function sendWhatsAppTemplate(toNumber, name, tasks) {
       : '-';
     const overdue = target && new Date(target) < new Date() ? ' ⚠️' : '';
     return `${i + 1}. ${t.task_description} [${targetStr}${overdue}, ${t.section || '-'}]`;
-  }).join(' | ');
-  return waPost({
+  };
+  const taskParams = [];
+  for (let i = 0; i < MAX_SLOTS; i++) {
+    if (i < MAX_SLOTS - 1) {
+      taskParams.push(i < tasks.length ? formatTask(tasks[i], i) : EMPTY);
+    } else {
+      // last slot: task 7 alone or tasks 7+ joined with |
+      if (tasks.length > MAX_SLOTS) {
+        taskParams.push(tasks.slice(MAX_SLOTS - 1).map((t, j) => formatTask(t, MAX_SLOTS - 1 + j)).join(' | '));
+      } else if (tasks.length === MAX_SLOTS) {
+        taskParams.push(formatTask(tasks[MAX_SLOTS - 1], MAX_SLOTS - 1));
+      } else {
+        taskParams.push(EMPTY);
+      }
+    }
+  }
+  const parameters = [
+    { type: 'text', text: String(name) },
+    ...taskParams.map(t => ({ type: 'text', text: t })),
+    { type: 'text', text: String(tasks.length) },
+  ];
+  const result = await waPost({
     messaging_product: 'whatsapp',
     to: number,
     type: 'template',
     template: {
-      name: 'task_reminder_detail',
+      name: 'task_reminder_lines',
       language: { code: 'en' },
-      components: [{ type: 'body', parameters: [
-        { type: 'text', text: String(name) },
-        { type: 'text', text: taskLines },
-        { type: 'text', text: String(tasks.length) },
-      ]}],
+      components: [{ type: 'body', parameters }],
     },
   });
+  return result;
 }
 
 async function sendWhatsAppText(toNumber, text) {
@@ -1396,7 +1421,7 @@ async function runOverdueReminders(companyId, stakeholderIds = null) {
         continue;
       }
 
-      const { ok: templateOk, wamid } = await sendWhatsAppTemplate(sh.whatsapp_number, sh.name, pendingTasks);
+      const { ok: templateOk, wamid, errorReason } = await sendWhatsAppTemplate(sh.whatsapp_number, sh.name, pendingTasks);
       if (templateOk) {
         await incrementWACount(company.id);
         waCheck.sent++;
@@ -1409,11 +1434,12 @@ async function runOverdueReminders(companyId, stakeholderIds = null) {
           [company.id, sh.name, sh.whatsapp_number, wamid]
         ).catch(() => {});
       } else {
-        details.push({ name: sh.name, number: sh.whatsapp_number, status: 'failed', reason: 'WhatsApp API error' });
+        const reason = errorReason || 'WhatsApp API error';
+        details.push({ name: sh.name, number: sh.whatsapp_number, status: 'failed', reason });
         pool.query(
-          `INSERT INTO tt_wa_messages (company_id, stakeholder_name, phone, wamid, status)
-           VALUES ($1,$2,$3,NULL,'failed')`,
-          [company.id, sh.name, sh.whatsapp_number]
+          `INSERT INTO tt_wa_messages (company_id, stakeholder_name, phone, wamid, status, error_reason)
+           VALUES ($1,$2,$3,NULL,'failed',$4)`,
+          [company.id, sh.name, sh.whatsapp_number, reason]
         ).catch(() => {});
       }
     }
@@ -1515,11 +1541,20 @@ app.post('/api/wa/webhook', async (req, res) => {
           if (!wamid || !['delivered', 'read', 'failed'].includes(newStatus)) continue;
           if (newStatus === 'failed') {
             console.error(`WA delivery FAILED wamid=${wamid} errors=${JSON.stringify(status.errors)} raw=${JSON.stringify(status)}`);
+            const errDetail = status.errors?.[0];
+            const webhookReason = errDetail
+              ? `[${errDetail.code}] ${errDetail.title || errDetail.message || ''} ${errDetail.error_data?.details || ''}`.trim()
+              : 'Delivery failed';
+            pool.query(
+              `UPDATE tt_wa_messages SET status=$1, status_at=NOW(), error_reason=$2 WHERE wamid=$3 AND status != 'read'`,
+              [newStatus, webhookReason, wamid]
+            ).catch(() => {});
+          } else {
+            pool.query(
+              `UPDATE tt_wa_messages SET status=$1, status_at=NOW() WHERE wamid=$2 AND status != 'read'`,
+              [newStatus, wamid]
+            ).catch(() => {});
           }
-          pool.query(
-            `UPDATE tt_wa_messages SET status=$1, status_at=NOW() WHERE wamid=$2 AND status != 'read'`,
-            [newStatus, wamid]
-          ).catch(() => {});
         }
       }
     }
@@ -1530,7 +1565,7 @@ app.post('/api/wa/webhook', async (req, res) => {
 app.get('/api/notifications/messages', auth, checkTrial, async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT stakeholder_name, phone, wamid, status, sent_at, status_at
+      `SELECT stakeholder_name, phone, wamid, status, sent_at, status_at, error_reason
        FROM tt_wa_messages
        WHERE company_id=$1 AND sent_at > NOW() - INTERVAL '30 days'
        ORDER BY sent_at DESC
