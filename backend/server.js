@@ -1322,6 +1322,7 @@ async function sendWhatsAppTemplate(toNumber, name, tasks) {
   if (number.length < 10) return { ok: false, wamid: null };
   const MAX_SLOTS = 15;
   const EMPTY = '​';
+  const sanitize = str => String(str || '').replace(/[\n\r\t]/g, ' ').replace(/ {5,}/g, '    ').trim();
   const formatTask = (t, i) => {
     const target = t.revised_date_5 || t.revised_date_4 || t.revised_date_3 ||
       t.revised_date_2 || t.revised_date_1 || t.initial_target_date;
@@ -1329,7 +1330,7 @@ async function sendWhatsAppTemplate(toNumber, name, tasks) {
       ? new Date(target).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
       : '-';
     const overdue = target && new Date(target) < new Date() ? ' ⚠️' : '';
-    return `${i + 1}. ${t.task_description} [${targetStr}${overdue}, ${t.section || '-'}]`;
+    return `${i + 1}. ${sanitize(t.task_description)} [${targetStr}${overdue}, ${sanitize(t.section) || '-'}]`;
   };
   const taskParams = [];
   for (let i = 0; i < MAX_SLOTS; i++) {
@@ -1347,7 +1348,7 @@ async function sendWhatsAppTemplate(toNumber, name, tasks) {
     }
   }
   const parameters = [
-    { type: 'text', text: String(name) },
+    { type: 'text', text: sanitize(name) },
     ...taskParams.map(t => ({ type: 'text', text: t })),
     { type: 'text', text: String(tasks.length) },
   ];
